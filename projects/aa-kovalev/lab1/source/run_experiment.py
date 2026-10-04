@@ -14,8 +14,10 @@ import subprocess
 import sys
 from time import perf_counter
 from uuid import uuid4
+from urllib.parse import urlparse
 
 import httpx
+import psutil
 
 from config import BASE_URL, MODELS
 
@@ -49,6 +51,95 @@ class Experiment:
             return response.json()
         except (httpx.HTTPError, ValueError) as error:
             return {"error": str(error)}
+
+    def measure_tokenization(self, text: str, model_details: dict) -> dict:
+        """Измерить локальный /tokenize активного runner, включая HTTP-задержки."""
+        result = {"status": "error", "text": text, "scope": "raw_prompt_without_chat_template", "timing_scope": "runner_http_roundtrip", "repeats": 20}
+        try:
+            if urlparse(self.base_url).hostname not in ("localhost", "127.0.0.1", "::1"):
+                raise ValueError("Поиск runner доступен только для локальной Ollama")
+            model_file = next(line[5:].strip().strip('"') for line in model_details.get("modelfile", "").splitlines() if line.startswith("FROM "))
+            model_basename = model_file.replace("\\", "/").split("/")[-1]
+            runner_url = None
+            for process in psutil.process_iter(["name", "cmdline"]):
+                try:
+                    args = process.info["cmdline"] or []
+                    name = (process.info["name"] or "").lower()
+                    if not any(part in name for part in ("ollama", "llama")):
+                        continue
+                    if "--model" not in args or "--port" not in args:
+                        continue
+                    loaded_file = args[args.index("--model") + 1].replace("\\", "/").split("/")[-1]
+                    if loaded_file == model_basename:
+                        port = int(args[args.index("--port") + 1])
+                        runner_url = f"http://127.0.0.1:{port}/tokenize"
+                        break
+                except (psutil.Error, ValueError, IndexError):
+                    continue
+            if runner_url is None:
+                raise ValueError("Не найден локальный runner выбранной модели с --model и --port")
+            timings = []
+            count = None
+            for index in range(21):
+                started = perf_counter()
+                response = self.client.post(runner_url, json={"content": text, "add_special": False})
+                response.raise_for_status()
+                tokens = response.json()["tokens"]
+                elapsed = perf_counter() - started
+                if not isinstance(tokens, list):
+                    raise ValueError("Runner вернул некорректный список токенов")
+                if count is not None and count != len(tokens):
+                    raise ValueError("Число токенов меняется между повторами")
+                count = len(tokens)
+                if index:
+                    timings.append(elapsed)
+            result.update(status="ok", runner_url=runner_url, token_count=count, samples_s=timings,
+                          tokenization_s=statistics.median(timings),
+                          tokenization_tokens_per_s=count / statistics.median(timings))
+        except (httpx.HTTPError, psutil.Error, ValueError, KeyError, StopIteration) as error:
+            result["error"] = str(error) or "В /api/show отсутствует путь FROM к модели"
+        return result
+
+    def measure_native(self, model: str, text: str, parameters: dict) -> dict:
+        """Отдельная генерация для серверных длительностей, не метрики ответа /v1."""
+        options = {("num_predict" if key == "max_tokens" else key): value for key, value in parameters.items()}
+        payload = {"model": model, "messages": [{"role": "user", "content": text}], "stream": False}
+        if options:
+            payload["options"] = options
+        started = perf_counter()
+        result = {"status": "error", "endpoint": "/api/chat", "request": payload}
+        try:
+            response = self.client.post(f"{self.native_url}/api/chat", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            result["response"] = data
+            if not data.get("done") or data.get("error"):
+                raise ValueError(str(data.get("error", "Генерация не завершена")))
+            def seconds(key):
+                value = data.get(key)
+                return value / 1e9 if isinstance(value, (int, float)) else None
+            generation_s = seconds("eval_duration")
+            prompt_s = seconds("prompt_eval_duration")
+            generated = data.get("eval_count")
+            prompt = data.get("prompt_eval_count")
+            cached = data.get("prompt_eval_cached_count")
+            uncached = max(0, prompt - cached) if prompt is not None and cached is not None else None
+            result.update(status="ok", metrics={
+                "server_total_s": seconds("total_duration"),
+                "server_load_s": seconds("load_duration"),
+                "server_prompt_eval_s": prompt_s,
+                "server_generation_s": generation_s,
+                "prompt_tokens": prompt,
+                "cached_prompt_tokens": cached,
+                "uncached_prompt_tokens": uncached,
+                "completion_tokens": generated,
+                "server_generation_tokens_per_s": generated / generation_s if generated is not None and generation_s else None,
+                "server_uncached_prompt_tokens_per_s": uncached / prompt_s if uncached is not None and prompt_s else None,
+            })
+        except (httpx.HTTPError, ValueError) as error:
+            result["error"] = str(error)
+        result["elapsed_s"] = perf_counter() - started
+        return result
 
     def generate(self, model: str, text: str, parameters: dict) -> dict:
         payload = {
@@ -131,7 +222,7 @@ class Experiment:
         return record
 
 
-def save_summary(path: Path, records: list[dict]) -> None:
+def save_summary(path: Path, records: list[dict], tokenization_benchmarks: dict) -> None:
     groups = defaultdict(list)
     for record in records:
         groups[(record["model"], record["prompt_id"], record["mode"])].append(record)
@@ -142,10 +233,20 @@ def save_summary(path: Path, records: list[dict]) -> None:
         row["unique_answers"] = len({record["answer"] for record in successful})
         row["most_common_answer_fraction"] = max(Counter(record["answer"] for record in successful).values()) / len(successful) if successful else None
         row["truncated_answers"] = sum(record["finish_reason"] == "length" for record in successful)
+        tokenizer = tokenization_benchmarks.get(model, {}).get(prompt_id, {})
+        row["raw_prompt_tokens"] = tokenizer.get("token_count")
+        row["tokenization_http_s_median"] = tokenizer.get("tokenization_s")
+        row["tokenization_http_tokens_per_s"] = tokenizer.get("tokenization_tokens_per_s")
         for metric in ("elapsed_s", "first_text_s", "prompt_tokens", "completion_tokens", "output_tokens_per_request_second", "repeated_word_trigram_fraction"):
             values = [record["metrics"][metric] for record in successful if record["metrics"][metric] is not None]
             row[f"{metric}_mean"] = statistics.mean(values) if values else None
             row[f"{metric}_std"] = statistics.stdev(values) if len(values) > 1 else None
+        native = [record["native_measurement"]["metrics"] for record in group if record["native_measurement"]["status"] == "ok"]
+        row["native_successful"] = len(native)
+        for metric in ("server_generation_tokens_per_s", "server_generation_s", "server_prompt_eval_s", "server_uncached_prompt_tokens_per_s"):
+            values = [item[metric] for item in native if item[metric] is not None]
+            row[f"native_{metric}_mean"] = statistics.mean(values) if values else None
+            row[f"native_{metric}_std"] = statistics.stdev(values) if len(values) > 1 else None
         rows.append(row)
     if rows:
         with path.open("w", encoding="utf-8-sig", newline="") as file:
@@ -170,7 +271,7 @@ def main() -> int:
     folder = ROOT / "results" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8])
     folder.mkdir(parents=True)
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "base_url": args.base_url,
         "models": args.models,
         "repeats": args.repeats,
@@ -186,13 +287,17 @@ def main() -> int:
         "git_revision": command_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"]),
         "git_status": command_output(["git", "-C", str(ROOT), "status", "--porcelain"]),
         "model_details": {},
+        "tokenization_benchmarks": {},
         "warmups": [],
         "notes": [
-            "Все измеряемые генерации идут через /v1/chat/completions; native API используется только для метаданных.",
+            "Основные генерации идут через /v1/chat/completions. Каждый ответ имеет отдельный native_measurement через /api/chat для серверных длительностей.",
             "A не задаёт параметры генерации; B меняет temperature, top_p, max_tokens. Seed и JSON mode не задаются.",
             "first_text_s — клиентское время до первого непустого текстового фрагмента, не точное серверное время до первого токена.",
             "output_tokens_per_request_second включает обработку входа, сеть и служебные задержки; это не чистая скорость генерации.",
             "OpenAI endpoint не отдаёт отдельное время токенизации и серверные длительности; недоступные показатели равны null.",
+            "Серверные длительности native_measurement относятся только к его собственному response, а не к основному answer.",
+            "Токенизация сырого промпта измеряется через внутренний /tokenize локального runner: медиана 20 запросов после прогрева, включая HTTP и разбор JSON. Chat template и специальные токены не добавляются.",
+            "Внутренний API runner может различаться между версиями Ollama; ошибки токенизации сохраняются явно.",
             "Кэш Ollama не очищается. История в каждом запросе новая. Порядок A/B чередуется между повторами.",
             "Переменные окружения относятся к процессу скрипта; настройки сервера проверяются по /api/ps.",
         ],
@@ -216,21 +321,40 @@ def main() -> int:
                 write_json(folder / "metadata.json", metadata)
                 if warmup["status"] != "ok":
                     raise ValueError(f"Прогрев {model} не удался: {warmup.get('error')}")
+                metadata["tokenization_benchmarks"][model] = {}
                 for prompt in prompts:
+                    tokenization = experiment.measure_tokenization(prompt["text"], metadata["model_details"][model])
+                    metadata["tokenization_benchmarks"][model][prompt["id"]] = tokenization
+                    write_json(folder / "metadata.json", metadata)
+                    if tokenization["status"] != "ok":
+                        print(f"Токенизация {model} {prompt['id']}: {tokenization.get('error')}", file=sys.stderr)
                     for repeat in range(1, args.repeats + 1):
                         modes = ("A", "B") if repeat % 2 else ("B", "A")
                         for mode in modes:
                             record = experiment.generate(model, prompt["text"], MODES[mode])
                             record.update(model=model, prompt_id=prompt["id"], mode=mode, repeat=repeat)
-                            record["ollama_ps_after"] = experiment.diagnostic("/api/ps")
+                            # Сначала сохранить основной ответ: дополнительное измерение может быть прервано.
+                            record["native_measurement"] = {"status": "pending"}
+                            line_start = output.tell()
                             output.write(json.dumps(record, ensure_ascii=False) + "\n")
                             output.flush()
                             records.append(record)
+                            record["native_measurement"] = experiment.measure_native(model, prompt["text"], MODES[mode])
+                            record["ollama_ps_after"] = experiment.diagnostic("/api/ps")
+                            # Обновить последнюю строку, сохранив один объект на основной прогон.
+                            output.seek(line_start)
+                            output.write(json.dumps(record, ensure_ascii=False) + "\n")
+                            output.truncate()
+                            output.flush()
                             print(f"[{len(records)}/{total}] {model} {prompt['id']} {mode} #{repeat}: {record['status']}, {record['metrics']['elapsed_s']:.2f} с, {record['metrics']['completion_tokens']} токенов", flush=True)
                             if record["status"] != "ok":
                                 print(record["error"], file=sys.stderr)
+                            if record["native_measurement"]["status"] != "ok":
+                                print(f"Серверные измерения: {record['native_measurement'].get('error')}", file=sys.stderr)
                 write_json(folder / "metadata.json", metadata)
-        metadata["status"] = "completed" if all(record["status"] == "ok" for record in records) else "completed_with_errors"
+        complete = all(record["status"] == "ok" and record["native_measurement"]["status"] == "ok" for record in records)
+        tokenization_complete = all(item["status"] == "ok" for group in metadata["tokenization_benchmarks"].values() for item in group.values())
+        metadata["status"] = "completed" if complete and tokenization_complete else "completed_with_errors"
     except KeyboardInterrupt:
         metadata["status"] = "interrupted"
         print("Остановлено. Завершённые прогоны сохранены.", file=sys.stderr)
@@ -242,7 +366,7 @@ def main() -> int:
         metadata["finished_at"] = datetime.now(timezone.utc).isoformat()
         metadata["saved_runs"] = len(records)
         write_json(folder / "metadata.json", metadata)
-        save_summary(folder / "summary.csv", records)
+        save_summary(folder / "summary.csv", records, metadata["tokenization_benchmarks"])
     return 0 if metadata["status"] == "completed" else 1
 
 
