@@ -1,0 +1,42 @@
+{
+  "source": {
+    "title": "Укус Питона — A Byte of Python, версия 2.02",
+    "author": "Swaroop C H",
+    "translator": "Владимир Смоляр",
+    "url": "https://wikihandbk.com/ruwiki/images/8/8f/AByteofPythonRussian-2.02.pdf",
+    "original": "https://wombat.org.ua/AByteOfPython/",
+    "sha256": "347ef46000c3e4179272598ba4b585ae0786b94db897c9d60c6162d0bfe764ba",
+    "license": "CC BY-SA 3.0; примеры кода — BSD-3-Clause",
+    "date": "2020-04-26",
+    "first_page": 42,
+    "last_page": 148
+  },
+  "ollama_url": "http://localhost:11434",
+  "qdrant_url": "http://localhost:6333",
+  "llm": "gemma3:4b",
+  "embedding_model": "bge-m3:567m",
+  "tokenizer": "cl100k_base",
+  "splitter": "markdown",
+  "chunk_size": 256,
+  "overlap": 32,
+  "include_headings": true,
+  "vectorization": "dense",
+  "hnsw": {
+    "m": 16,
+    "ef_construct": 100,
+    "ef_search": 128
+  },
+  "context_chunks": 3,
+  "variants": {
+    "dense_small": {},
+    "dense_large": {
+      "chunk_size": 512,
+      "overlap": 64
+    },
+    "hybrid_large": {
+      "chunk_size": 512,
+      "overlap": 64,
+      "vectorization": "hybrid"
+    }
+  }
+}

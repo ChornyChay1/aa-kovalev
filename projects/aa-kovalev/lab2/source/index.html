@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Учебник Python — вопросы и ответы</title>
+<style>body{font:17px system-ui;max-width:850px;margin:50px auto;padding:0 20px;background:#f6f7fa;color:#182235}h1{font-size:28px}textarea{box-sizing:border-box;width:100%;padding:15px;font:inherit;border:1px solid #bec7d5;border-radius:8px}button{background:#285dcc;color:white;border:0;border-radius:7px;padding:12px 22px;font:inherit;margin:12px 0;cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}article{background:white;padding:20px;border-radius:10px;margin:15px 0}small{color:#536278}a{color:#285dcc}</style>
+<h1>Вопросы по учебнику Python</h1>
+<p>«Укус Питона», Swaroop C H, перевод Владимира Смоляра. Ответы с цитатами из книги.</p>
+<form id="form"><textarea id="question" required maxlength="2000" rows="3" placeholder="Чем список отличается от кортежа?" aria-label="Вопрос"></textarea><button id="send">Спросить</button></form>
+<p id="status" role="status"></p><article id="result" hidden><pre id="answer"></pre><div id="sources"></div></article>
+<small>Источник: <a href="https://wombat.org.ua/AByteOfPython/">русский перевод</a>; <a href="https://python.swaroopch.com/">оригинал</a>. Текст: CC BY-SA 3.0, примеры кода: BSD-3-Clause. Номера страниц относятся к PDF.</small>
+<script>
+const form=document.querySelector('#form'), button=document.querySelector('#send'), status=document.querySelector('#status');
+form.addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;status.textContent='Ищу в книге и готовлю ответ…';document.querySelector('#result').hidden=true;
+try{const response=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:document.querySelector('#question').value})});const data=await response.json();if(!response.ok)throw Error(data.detail||'Ошибка запроса');
+document.querySelector('#answer').textContent=data.answer;const sources=document.querySelector('#sources');sources.replaceChildren();
+for(const c of data.citations){const details=document.createElement('details'), summary=document.createElement('summary'),link=document.createElement('a'),pre=document.createElement('pre');summary.textContent=`[${c.number}] ${c.source} — страница ${c.page}`;link.textContent='Открыть страницу PDF';link.href=c.url;link.target='_blank';link.rel='noopener';pre.textContent=c.snippet;details.append(summary,link,pre);sources.append(details);}
+document.querySelector('#result').hidden=false;status.textContent=`Поиск: ${data.retrieval_s.toFixed(2)} с; ответ: ${data.generation_s.toFixed(2)} с.`;
+if(data.invalid_citations?.length)status.textContent+=' В ответе есть ссылки на отсутствующие фрагменты.';
+if(!data.citations.length)status.textContent+=' Модель не указала подтверждающих цитат.';
+}catch(error){status.textContent=error.message;}finally{button.disabled=false;}});
+</script></html>
