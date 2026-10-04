@@ -100,47 +100,6 @@ class Experiment:
             result["error"] = str(error) or "В /api/show отсутствует путь FROM к модели"
         return result
 
-    def measure_native(self, model: str, text: str, parameters: dict) -> dict:
-        """Отдельная генерация для серверных длительностей, не метрики ответа /v1."""
-        options = {("num_predict" if key == "max_tokens" else key): value for key, value in parameters.items()}
-        payload = {"model": model, "messages": [{"role": "user", "content": text}], "stream": False}
-        if options:
-            payload["options"] = options
-        started = perf_counter()
-        result = {"status": "error", "endpoint": "/api/chat", "request": payload}
-        try:
-            response = self.client.post(f"{self.native_url}/api/chat", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            result["response"] = data
-            if not data.get("done") or data.get("error"):
-                raise ValueError(str(data.get("error", "Генерация не завершена")))
-            def seconds(key):
-                value = data.get(key)
-                return value / 1e9 if isinstance(value, (int, float)) else None
-            generation_s = seconds("eval_duration")
-            prompt_s = seconds("prompt_eval_duration")
-            generated = data.get("eval_count")
-            prompt = data.get("prompt_eval_count")
-            cached = data.get("prompt_eval_cached_count")
-            uncached = max(0, prompt - cached) if prompt is not None and cached is not None else None
-            result.update(status="ok", metrics={
-                "server_total_s": seconds("total_duration"),
-                "server_load_s": seconds("load_duration"),
-                "server_prompt_eval_s": prompt_s,
-                "server_generation_s": generation_s,
-                "prompt_tokens": prompt,
-                "cached_prompt_tokens": cached,
-                "uncached_prompt_tokens": uncached,
-                "completion_tokens": generated,
-                "server_generation_tokens_per_s": generated / generation_s if generated is not None and generation_s else None,
-                "server_uncached_prompt_tokens_per_s": uncached / prompt_s if uncached is not None and prompt_s else None,
-            })
-        except (httpx.HTTPError, ValueError) as error:
-            result["error"] = str(error)
-        result["elapsed_s"] = perf_counter() - started
-        return result
-
     def generate(self, model: str, text: str, parameters: dict) -> dict:
         payload = {
             "model": model,
@@ -151,7 +110,7 @@ class Experiment:
         }
         record = {"started_at": datetime.now(timezone.utc).isoformat(), "request": payload, "status": "ok"}
         chunks, parts = [], []
-        usage, finish_reason = {}, None
+        usage, timings, finish_reason = {}, {}, None
         first_text, last_text, headers_time = None, None, None
         done = False
         started = perf_counter()
@@ -176,6 +135,8 @@ class Experiment:
                     chunks.append(chunk)
                     if chunk.get("usage"):
                         usage = chunk["usage"]
+                    if chunk.get("timings"):
+                        timings = chunk["timings"]
                     for choice in chunk.get("choices", []):
                         content = choice.get("delta", {}).get("content")
                         if content:
@@ -192,6 +153,12 @@ class Experiment:
         elapsed = perf_counter() - started
         text = "".join(parts)
         tokens = usage.get("completion_tokens")
+        def server_seconds(key):
+            value = timings.get(key)
+            return value / 1000 if isinstance(value, (int, float)) and value >= 0 else None
+        generation_s = server_seconds("predicted_ms")
+        generated = timings.get("predicted_n")
+        generation_speed = generated / generation_s if isinstance(generated, (int, float)) and generated >= 0 and generation_s else None
         words = re.findall(r"\w+", text.lower())
         trigrams = list(zip(words, words[1:], words[2:]))
         record.update(
@@ -199,6 +166,7 @@ class Experiment:
             finish_reason=finish_reason,
             usage=usage,
             raw_chunks=chunks,
+            server_timings=timings,
             metrics={
                 "elapsed_s": elapsed,
                 "response_headers_s": headers_time,
@@ -209,11 +177,9 @@ class Experiment:
                 "total_tokens": usage.get("total_tokens"),
                 "cached_prompt_tokens": usage.get("prompt_tokens_details", {}).get("cached_tokens"),
                 "output_tokens_per_request_second": tokens / elapsed if tokens is not None and record["status"] == "ok" else None,
-                "tokenization_s": None,
-                "tokenization_tokens_per_s": None,
-                "server_prompt_eval_s": None,
-                "server_generation_s": None,
-                "server_generation_tokens_per_s": None,
+                "server_prompt_eval_s": server_seconds("prompt_ms"),
+                "server_generation_s": generation_s,
+                "server_generation_tokens_per_s": generation_speed,
                 "answer_chars": len(text),
                 "answer_words": len(words),
                 "repeated_word_trigram_fraction": (len(trigrams) - len(set(trigrams))) / len(trigrams) if trigrams else 0,
@@ -237,16 +203,11 @@ def save_summary(path: Path, records: list[dict], tokenization_benchmarks: dict)
         row["raw_prompt_tokens"] = tokenizer.get("token_count")
         row["tokenization_http_s_median"] = tokenizer.get("tokenization_s")
         row["tokenization_http_tokens_per_s"] = tokenizer.get("tokenization_tokens_per_s")
-        for metric in ("elapsed_s", "first_text_s", "prompt_tokens", "completion_tokens", "output_tokens_per_request_second", "repeated_word_trigram_fraction"):
+        for metric in ("elapsed_s", "first_text_s", "prompt_tokens", "completion_tokens", "output_tokens_per_request_second", "repeated_word_trigram_fraction", "server_generation_tokens_per_s", "server_generation_s", "server_prompt_eval_s"):
             values = [record["metrics"][metric] for record in successful if record["metrics"][metric] is not None]
             row[f"{metric}_mean"] = statistics.mean(values) if values else None
             row[f"{metric}_std"] = statistics.stdev(values) if len(values) > 1 else None
-        native = [record["native_measurement"]["metrics"] for record in group if record["native_measurement"]["status"] == "ok"]
-        row["native_successful"] = len(native)
-        for metric in ("server_generation_tokens_per_s", "server_generation_s", "server_prompt_eval_s", "server_uncached_prompt_tokens_per_s"):
-            values = [item[metric] for item in native if item[metric] is not None]
-            row[f"native_{metric}_mean"] = statistics.mean(values) if values else None
-            row[f"native_{metric}_std"] = statistics.stdev(values) if len(values) > 1 else None
+        row["server_timings_available"] = sum(record["metrics"]["server_generation_tokens_per_s"] is not None for record in successful)
         rows.append(row)
     if rows:
         with path.open("w", encoding="utf-8-sig", newline="") as file:
@@ -271,7 +232,7 @@ def main() -> int:
     folder = ROOT / "results" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + uuid4().hex[:8])
     folder.mkdir(parents=True)
     metadata = {
-        "schema_version": 2,
+        "schema_version": 3,
         "base_url": args.base_url,
         "models": args.models,
         "repeats": args.repeats,
@@ -290,12 +251,12 @@ def main() -> int:
         "tokenization_benchmarks": {},
         "warmups": [],
         "notes": [
-            "Основные генерации идут через /v1/chat/completions. Каждый ответ имеет отдельный native_measurement через /api/chat для серверных длительностей.",
+            "Все генерации идут через /v1/chat/completions; серверные длительности берутся из timings того же ответа. Дополнительных генераций для измерений нет.",
             "A не задаёт параметры генерации; B меняет temperature, top_p, max_tokens. Seed и JSON mode не задаются.",
             "first_text_s — клиентское время до первого непустого текстового фрагмента, не точное серверное время до первого токена.",
             "output_tokens_per_request_second включает обработку входа, сеть и служебные задержки; это не чистая скорость генерации.",
-            "OpenAI endpoint не отдаёт отдельное время токенизации и серверные длительности; недоступные показатели равны null.",
-            "Серверные длительности native_measurement относятся только к его собственному response, а не к основному answer.",
+            "Серверная скорость генерации: predicted_n / (predicted_ms / 1000). Обработка промпта prompt_ms включает влияние кэша и не является временем токенизации.",
+            "Если версия Ollama не возвращает timings, серверные показатели равны null; ошибка измерения выводится явно, отдельная генерация не выполняется.",
             "Токенизация сырого промпта измеряется через внутренний /tokenize локального runner: медиана 20 запросов после прогрева, включая HTTP и разбор JSON. Chat template и специальные токены не добавляются.",
             "Внутренний API runner может различаться между версиями Ollama; ошибки токенизации сохраняются явно.",
             "Кэш Ollama не очищается. История в каждом запросе новая. Порядок A/B чередуется между повторами.",
@@ -333,26 +294,17 @@ def main() -> int:
                         for mode in modes:
                             record = experiment.generate(model, prompt["text"], MODES[mode])
                             record.update(model=model, prompt_id=prompt["id"], mode=mode, repeat=repeat)
-                            # Сначала сохранить основной ответ: дополнительное измерение может быть прервано.
-                            record["native_measurement"] = {"status": "pending"}
-                            line_start = output.tell()
+                            record["ollama_ps_after"] = experiment.diagnostic("/api/ps")
                             output.write(json.dumps(record, ensure_ascii=False) + "\n")
                             output.flush()
                             records.append(record)
-                            record["native_measurement"] = experiment.measure_native(model, prompt["text"], MODES[mode])
-                            record["ollama_ps_after"] = experiment.diagnostic("/api/ps")
-                            # Обновить последнюю строку, сохранив один объект на основной прогон.
-                            output.seek(line_start)
-                            output.write(json.dumps(record, ensure_ascii=False) + "\n")
-                            output.truncate()
-                            output.flush()
                             print(f"[{len(records)}/{total}] {model} {prompt['id']} {mode} #{repeat}: {record['status']}, {record['metrics']['elapsed_s']:.2f} с, {record['metrics']['completion_tokens']} токенов", flush=True)
                             if record["status"] != "ok":
                                 print(record["error"], file=sys.stderr)
-                            if record["native_measurement"]["status"] != "ok":
-                                print(f"Серверные измерения: {record['native_measurement'].get('error')}", file=sys.stderr)
+                            if record["status"] == "ok" and record["metrics"]["server_generation_tokens_per_s"] is None:
+                                print("Нет серверной скорости в timings ответа; проверьте версию Ollama.", file=sys.stderr)
                 write_json(folder / "metadata.json", metadata)
-        complete = all(record["status"] == "ok" and record["native_measurement"]["status"] == "ok" for record in records)
+        complete = all(record["status"] == "ok" and record["metrics"]["server_generation_tokens_per_s"] is not None for record in records)
         tokenization_complete = all(item["status"] == "ok" for group in metadata["tokenization_benchmarks"].values() for item in group.values())
         metadata["status"] = "completed" if complete and tokenization_complete else "completed_with_errors"
     except KeyboardInterrupt:
