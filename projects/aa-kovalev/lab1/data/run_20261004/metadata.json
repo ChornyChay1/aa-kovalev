@@ -1,0 +1,1100 @@
+{
+  "schema_version": 2,
+  "base_url": "http://localhost:11434/v1",
+  "models": [
+    "qwen2.5:3b",
+    "llama3.2:3b",
+    "gemma3:4b"
+  ],
+  "repeats": 5,
+  "timeout_s": 300,
+  "modes": {
+    "A": {},
+    "B": {
+      "temperature": 0.2,
+      "top_p": 0.8,
+      "max_tokens": 512
+    }
+  },
+  "prompts": [
+    {
+      "id": "P1",
+      "task": "generation",
+      "text": "Напиши вежливое деловое письмо коллеге Марии на русском языке. Встречу по проекту «Атлас» нужно перенести с 12 октября, 14:00, на 13 октября, 11:00, потому что отчёт ещё не готов. Попроси подтвердить новое время. Подпись: Артём. Объём: 60–90 слов, включая приветствие и подпись. Не добавляй фактов, которых нет в задании. Верни только текст письма.",
+      "criteria": [
+        "Русский язык",
+        "Вежливый деловой тон",
+        "Все заданные даты и время сохранены",
+        "Причина переноса сохранена",
+        "Есть просьба подтвердить время и подпись",
+        "60–90 слов",
+        "Нет придуманных фактов"
+      ]
+    },
+    {
+      "id": "P2",
+      "task": "classification",
+      "text": "Классифицируй обращения. Допустимые метки: Billing (платежи), Tech support (техническая поддержка), Sales (покупка и тарифы). Для каждого обращения выбери ровно одну метку. Верни только JSON-объект: ключи — номера обращений строками, значения — метки. Без пояснений и Markdown.\n1. С карты дважды списали деньги за одну подписку.\n2. После обновления приложение закрывается при запуске.\n3. Можно ли купить годовой тариф для команды из десяти человек?\n4. Оплата прошла, но в счёте указана неверная сумма.\n5. При загрузке файла появляется ошибка 500.\n6. Есть ли скидка при покупке ста лицензий?",
+      "expected": {
+        "1": "Billing",
+        "2": "Tech support",
+        "3": "Sales",
+        "4": "Billing",
+        "5": "Tech support",
+        "6": "Sales"
+      }
+    },
+    {
+      "id": "P3",
+      "task": "extraction",
+      "text": "Извлеки характеристики товара из описания. Верни только JSON-объект с ключами name, price_rub, weight_g, battery_hours, color, warranty_months. Числовые значения должны быть числами, name и color — строками. Если характеристика не указана, используй null. Не делай предположений. Без пояснений и Markdown.\nОписание: Беспроводные наушники «Вектор А2» чёрного цвета стоят 3490 рублей. Масса — 180 граммов. Работают до 24 часов без подзарядки. В комплекте зарядный кабель и чехол.",
+      "expected": {
+        "name": "Вектор А2",
+        "price_rub": 3490,
+        "weight_g": 180,
+        "battery_hours": 24,
+        "color": "чёрный",
+        "warranty_months": null
+      }
+    }
+  ],
+  "python": "3.11.9",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "ollama_environment": {
+    "OLLAMA_CONTEXT_LENGTH": null,
+    "OLLAMA_MAX_LOADED_MODELS": null,
+    "OLLAMA_NUM_PARALLEL": null,
+    "OLLAMA_FLASH_ATTENTION": null,
+    "OLLAMA_KV_CACHE_TYPE": null
+  },
+  "ollama_version": {
+    "version": "0.35.1"
+  },
+  "ollama_models": {
+    "models": [
+      {
+        "name": "gemma3:4b",
+        "model": "gemma3:4b",
+        "modified_at": "2026-10-04T20:04:06.5493782+03:00",
+        "size": 3338801804,
+        "digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gemma3",
+          "families": [
+            "gemma3"
+          ],
+          "parameter_size": "4.3B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 131072,
+          "embedding_length": 2560
+        },
+        "capabilities": [
+          "completion",
+          "vision"
+        ]
+      },
+      {
+        "name": "llama3.2:3b",
+        "model": "llama3.2:3b",
+        "modified_at": "2026-10-04T19:55:38.2758534+03:00",
+        "size": 2019393189,
+        "digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "llama",
+          "families": [
+            "llama"
+          ],
+          "parameter_size": "3.2B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 131072,
+          "embedding_length": 3072
+        },
+        "capabilities": [
+          "completion",
+          "tools"
+        ]
+      },
+      {
+        "name": "qwen2.5:3b",
+        "model": "qwen2.5:3b",
+        "modified_at": "2026-10-04T19:47:49.4809605+03:00",
+        "size": 1929912432,
+        "digest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen2",
+          "families": [
+            "qwen2"
+          ],
+          "parameter_size": "3.1B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 32768,
+          "embedding_length": 2048
+        },
+        "capabilities": [
+          "completion",
+          "tools"
+        ]
+      }
+    ]
+  },
+  "nvidia_smi": {
+    "returncode": 0,
+    "stdout": "name, driver_version, memory.total [MiB], memory.used [MiB], power.limit [W]\nNVIDIA GeForce RTX 3060 Laptop GPU, 581.80, 6144 MiB, 0 MiB, [N/A]",
+    "stderr": ""
+  },
+  "git_revision": {
+    "returncode": 0,
+    "stdout": "f233f065d91a76a7b1690b18c6e914b871db5438",
+    "stderr": ""
+  },
+  "git_status": {
+    "returncode": 0,
+    "stdout": "?? .idea/",
+    "stderr": ""
+  },
+  "model_details": {
+    "qwen2.5:3b": {
+      "license": "Qwen RESEARCH LICENSE AGREEMENT\n\nQwen RESEARCH LICENSE AGREEMENT Release Date: September 19, 2024\n\nBy clicking to agree or by using or distributing any portion or element of the Qwen Materials, you will be deemed to have recognized and accepted the content of this Agreement, which is effective immediately.\n\n1. Definitions\n    a. This Qwen RESEARCH LICENSE AGREEMENT (this \"Agreement\") shall mean the terms and conditions for use, reproduction, distribution and modification of the Materials as defined by this Agreement.\n    b. \"We\" (or \"Us\") shall mean Alibaba Cloud.\n    c. \"You\" (or \"Your\") shall mean a natural person or legal entity exercising the rights granted by this Agreement and/or using the Materials for any purpose and in any field of use.\n    d. \"Third Parties\" shall mean individuals or legal entities that are not under common control with us or you.\n    e. \"Qwen\" shall mean the large language models, and software and algorithms, consisting of trained model weights, parameters (including optimizer states), machine-learning model code, inference-enabling code, training-enabling code, fine-tuning enabling code and other elements of the foregoing distributed by us.\n    f. \"Materials\" shall mean, collectively, Alibaba Cloud's proprietary Qwen and Documentation (and any portion thereof) made available under this Agreement.\n    g. \"Source\" form shall mean the preferred form for making modifications, including but not limited to model source code, documentation source, and configuration files.\n    h. \"Object\" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.\n    i. \"Non-Commercial\" shall mean for research or evaluation purposes only.\n\n2. Grant of Rights\n    a. You are granted a non-exclusive, worldwide, non-transferable and royalty-free limited license under Alibaba Cloud's intellectual property or other rights owned by us embodied in the Materials to use, reproduce, distribute, copy, create derivative works of, and make modifications to the Materials FOR NON-COMMERCIAL PURPOSES ONLY. \n    b. If you are commercially using the Materials, you shall request a license from us.\n\n3. Redistribution\nYou may distribute copies or make the Materials, or derivative works thereof, available as part of a product or service that contains any of them, with or without modifications, and in Source or Object form, provided that you meet the following conditions:\n    a. You shall give any other recipients of the Materials or derivative works a copy of this Agreement;\n    b. You shall cause any modified files to carry prominent notices stating that you changed the files;\n    c. You shall retain in all copies of the Materials that you distribute the following attribution notices within a \"Notice\" text file distributed as a part of such copies: \"Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT, Copyright (c) Alibaba Cloud. All Rights Reserved.\"; and\n    d. You may add your own copyright statement to your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of your modifications, or for any such derivative works as a whole, provided your use, reproduction, and distribution of the work otherwise complies with the terms and conditions of this Agreement.\n\n4. Rules of use\n    a. The Materials may be subject to export controls or restrictions in China, the United States or other countries or regions. You shall comply with applicable laws and regulations in your use of the Materials.\n    b. If you use the Materials or any outputs or results therefrom to create, train, fine-tune, or improve an AI model that is distributed or made available, you shall prominently display “Built with Qwen” or “Improved using Qwen” in the related product documentation.\n\n5. Intellectual Property\n    a. We retain ownership of all intellectual property rights in and to the Materials and derivatives made by or for us. Conditioned upon compliance with the terms and conditions of this Agreement, with respect to any derivative works and modifications of the Materials that are made by you, you are and will be the owner of such derivative works and modifications.\n    b. No trademark license is granted to use the trade names, trademarks, service marks, or product names of us, except as required to fulfill notice requirements under this Agreement or as required for reasonable and customary use in describing and redistributing the Materials.\n    c. If you commence a lawsuit or other proceedings (including a cross-claim or counterclaim in a lawsuit) against us or any entity alleging that the Materials or any output therefrom, or any part of the foregoing, infringe any intellectual property or other right owned or licensable by you, then all licenses granted to you under this Agreement shall terminate as of the date such lawsuit or other proceeding is commenced or brought.\n\n6. Disclaimer of Warranty and Limitation of Liability\n    a. We are not obligated to support, update, provide training for, or develop any further version of the Qwen Materials or to grant any license thereto.\n    b. THE MATERIALS ARE PROVIDED \"AS IS\" WITHOUT ANY EXPRESS OR IMPLIED WARRANTY OF ANY KIND INCLUDING WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR FITNESS FOR A PARTICULAR PURPOSE. WE MAKE NO WARRANTY AND ASSUME NO RESPONSIBILITY FOR THE SAFETY OR STABILITY OF THE MATERIALS AND ANY OUTPUT THEREFROM.\n    c. IN NO EVENT SHALL WE BE LIABLE TO YOU FOR ANY DAMAGES, INCLUDING, BUT NOT LIMITED TO ANY DIRECT, OR INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING FROM YOUR USE OR INABILITY TO USE THE MATERIALS OR ANY OUTPUT OF IT, NO MATTER HOW IT’S CAUSED.\n    d. You will defend, indemnify and hold harmless us from and against any claim by any third party arising out of or related to your use or distribution of the Materials.\n\n7. Survival and Termination.\n    a. The term of this Agreement shall commence upon your acceptance of this Agreement or access to the Materials and will continue in full force and effect until terminated in accordance with the terms and conditions herein.\n    b. We may terminate this Agreement if you breach any of the terms or conditions of this Agreement. Upon termination of this Agreement, you must delete and cease use of the Materials. Sections 6 and 8 shall survive the termination of this Agreement.\n\n8. Governing Law and Jurisdiction.\n    a. This Agreement and any dispute arising out of or relating to it will be governed by the laws of China, without regard to conflict of law principles, and the UN Convention on Contracts for the International Sale of Goods does not apply to this Agreement.\n    b. The People's Courts in Hangzhou City shall have exclusive jurisdiction over any dispute arising out of this Agreement.\n\n9. Other Terms and Conditions.\n    a. Any arrangements, understandings, or agreements regarding the Material not stated herein are separate from and independent of the terms and conditions of this Agreement. You shall request a separate license from us, if you use the Materials in ways not expressly agreed to in this Agreement. \n    b. We shall not be bound by any additional or different terms or conditions communicated by you unless expressly agreed.",
+      "modelfile": "# Modelfile generated by \"ollama show\"\n# To build a new Modelfile based on this, replace FROM with:\n# FROM qwen2.5:3b\n\nFROM C:\\Users\\Chay\\.ollama\\models\\blobs\\sha256-5ee4f07cdb9beadbbb293e85803c569b01bd37ed059d2715faa7bb405f31caa6\nTEMPLATE \"\"\"{{- if .Messages }}\n{{- if or .System .Tools }}<|im_start|>system\n{{- if .System }}\n{{ .System }}\n{{- end }}\n{{- if .Tools }}\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n{{- range .Tools }}\n{\"type\": \"function\", \"function\": {{ .Function }}}\n{{- end }}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call>\n{{- end }}<|im_end|>\n{{ end }}\n{{- range $i, $_ := .Messages }}\n{{- $last := eq (len (slice $.Messages $i)) 1 -}}\n{{- if eq .Role \"user\" }}<|im_start|>user\n{{ .Content }}<|im_end|>\n{{ else if eq .Role \"assistant\" }}<|im_start|>assistant\n{{ if .Content }}{{ .Content }}\n{{- else if .ToolCalls }}<tool_call>\n{{ range .ToolCalls }}{\"name\": \"{{ .Function.Name }}\", \"arguments\": {{ .Function.Arguments }}}\n{{ end }}</tool_call>\n{{- end }}{{ if not $last }}<|im_end|>\n{{ end }}\n{{- else if eq .Role \"tool\" }}<|im_start|>user\n<tool_response>\n{{ .Content }}\n</tool_response><|im_end|>\n{{ end }}\n{{- if and (ne .Role \"assistant\") $last }}<|im_start|>assistant\n{{ end }}\n{{- end }}\n{{- else }}\n{{- if .System }}<|im_start|>system\n{{ .System }}<|im_end|>\n{{ end }}{{ if .Prompt }}<|im_start|>user\n{{ .Prompt }}<|im_end|>\n{{ end }}<|im_start|>assistant\n{{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}\"\"\"\nSYSTEM You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\nLICENSE \"\"\"Qwen RESEARCH LICENSE AGREEMENT\n\nQwen RESEARCH LICENSE AGREEMENT Release Date: September 19, 2024\n\nBy clicking to agree or by using or distributing any portion or element of the Qwen Materials, you will be deemed to have recognized and accepted the content of this Agreement, which is effective immediately.\n\n1. Definitions\n    a. This Qwen RESEARCH LICENSE AGREEMENT (this \"Agreement\") shall mean the terms and conditions for use, reproduction, distribution and modification of the Materials as defined by this Agreement.\n    b. \"We\" (or \"Us\") shall mean Alibaba Cloud.\n    c. \"You\" (or \"Your\") shall mean a natural person or legal entity exercising the rights granted by this Agreement and/or using the Materials for any purpose and in any field of use.\n    d. \"Third Parties\" shall mean individuals or legal entities that are not under common control with us or you.\n    e. \"Qwen\" shall mean the large language models, and software and algorithms, consisting of trained model weights, parameters (including optimizer states), machine-learning model code, inference-enabling code, training-enabling code, fine-tuning enabling code and other elements of the foregoing distributed by us.\n    f. \"Materials\" shall mean, collectively, Alibaba Cloud's proprietary Qwen and Documentation (and any portion thereof) made available under this Agreement.\n    g. \"Source\" form shall mean the preferred form for making modifications, including but not limited to model source code, documentation source, and configuration files.\n    h. \"Object\" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.\n    i. \"Non-Commercial\" shall mean for research or evaluation purposes only.\n\n2. Grant of Rights\n    a. You are granted a non-exclusive, worldwide, non-transferable and royalty-free limited license under Alibaba Cloud's intellectual property or other rights owned by us embodied in the Materials to use, reproduce, distribute, copy, create derivative works of, and make modifications to the Materials FOR NON-COMMERCIAL PURPOSES ONLY. \n    b. If you are commercially using the Materials, you shall request a license from us.\n\n3. Redistribution\nYou may distribute copies or make the Materials, or derivative works thereof, available as part of a product or service that contains any of them, with or without modifications, and in Source or Object form, provided that you meet the following conditions:\n    a. You shall give any other recipients of the Materials or derivative works a copy of this Agreement;\n    b. You shall cause any modified files to carry prominent notices stating that you changed the files;\n    c. You shall retain in all copies of the Materials that you distribute the following attribution notices within a \"Notice\" text file distributed as a part of such copies: \"Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT, Copyright (c) Alibaba Cloud. All Rights Reserved.\"; and\n    d. You may add your own copyright statement to your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of your modifications, or for any such derivative works as a whole, provided your use, reproduction, and distribution of the work otherwise complies with the terms and conditions of this Agreement.\n\n4. Rules of use\n    a. The Materials may be subject to export controls or restrictions in China, the United States or other countries or regions. You shall comply with applicable laws and regulations in your use of the Materials.\n    b. If you use the Materials or any outputs or results therefrom to create, train, fine-tune, or improve an AI model that is distributed or made available, you shall prominently display “Built with Qwen” or “Improved using Qwen” in the related product documentation.\n\n5. Intellectual Property\n    a. We retain ownership of all intellectual property rights in and to the Materials and derivatives made by or for us. Conditioned upon compliance with the terms and conditions of this Agreement, with respect to any derivative works and modifications of the Materials that are made by you, you are and will be the owner of such derivative works and modifications.\n    b. No trademark license is granted to use the trade names, trademarks, service marks, or product names of us, except as required to fulfill notice requirements under this Agreement or as required for reasonable and customary use in describing and redistributing the Materials.\n    c. If you commence a lawsuit or other proceedings (including a cross-claim or counterclaim in a lawsuit) against us or any entity alleging that the Materials or any output therefrom, or any part of the foregoing, infringe any intellectual property or other right owned or licensable by you, then all licenses granted to you under this Agreement shall terminate as of the date such lawsuit or other proceeding is commenced or brought.\n\n6. Disclaimer of Warranty and Limitation of Liability\n    a. We are not obligated to support, update, provide training for, or develop any further version of the Qwen Materials or to grant any license thereto.\n    b. THE MATERIALS ARE PROVIDED \"AS IS\" WITHOUT ANY EXPRESS OR IMPLIED WARRANTY OF ANY KIND INCLUDING WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR FITNESS FOR A PARTICULAR PURPOSE. WE MAKE NO WARRANTY AND ASSUME NO RESPONSIBILITY FOR THE SAFETY OR STABILITY OF THE MATERIALS AND ANY OUTPUT THEREFROM.\n    c. IN NO EVENT SHALL WE BE LIABLE TO YOU FOR ANY DAMAGES, INCLUDING, BUT NOT LIMITED TO ANY DIRECT, OR INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING FROM YOUR USE OR INABILITY TO USE THE MATERIALS OR ANY OUTPUT OF IT, NO MATTER HOW IT’S CAUSED.\n    d. You will defend, indemnify and hold harmless us from and against any claim by any third party arising out of or related to your use or distribution of the Materials.\n\n7. Survival and Termination.\n    a. The term of this Agreement shall commence upon your acceptance of this Agreement or access to the Materials and will continue in full force and effect until terminated in accordance with the terms and conditions herein.\n    b. We may terminate this Agreement if you breach any of the terms or conditions of this Agreement. Upon termination of this Agreement, you must delete and cease use of the Materials. Sections 6 and 8 shall survive the termination of this Agreement.\n\n8. Governing Law and Jurisdiction.\n    a. This Agreement and any dispute arising out of or relating to it will be governed by the laws of China, without regard to conflict of law principles, and the UN Convention on Contracts for the International Sale of Goods does not apply to this Agreement.\n    b. The People's Courts in Hangzhou City shall have exclusive jurisdiction over any dispute arising out of this Agreement.\n\n9. Other Terms and Conditions.\n    a. Any arrangements, understandings, or agreements regarding the Material not stated herein are separate from and independent of the terms and conditions of this Agreement. You shall request a separate license from us, if you use the Materials in ways not expressly agreed to in this Agreement. \n    b. We shall not be bound by any additional or different terms or conditions communicated by you unless expressly agreed.\"\"\"\n",
+      "template": "{{- if .Messages }}\n{{- if or .System .Tools }}<|im_start|>system\n{{- if .System }}\n{{ .System }}\n{{- end }}\n{{- if .Tools }}\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n{{- range .Tools }}\n{\"type\": \"function\", \"function\": {{ .Function }}}\n{{- end }}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call>\n{{- end }}<|im_end|>\n{{ end }}\n{{- range $i, $_ := .Messages }}\n{{- $last := eq (len (slice $.Messages $i)) 1 -}}\n{{- if eq .Role \"user\" }}<|im_start|>user\n{{ .Content }}<|im_end|>\n{{ else if eq .Role \"assistant\" }}<|im_start|>assistant\n{{ if .Content }}{{ .Content }}\n{{- else if .ToolCalls }}<tool_call>\n{{ range .ToolCalls }}{\"name\": \"{{ .Function.Name }}\", \"arguments\": {{ .Function.Arguments }}}\n{{ end }}</tool_call>\n{{- end }}{{ if not $last }}<|im_end|>\n{{ end }}\n{{- else if eq .Role \"tool\" }}<|im_start|>user\n<tool_response>\n{{ .Content }}\n</tool_response><|im_end|>\n{{ end }}\n{{- if and (ne .Role \"assistant\") $last }}<|im_start|>assistant\n{{ end }}\n{{- end }}\n{{- else }}\n{{- if .System }}<|im_start|>system\n{{ .System }}<|im_end|>\n{{ end }}{{ if .Prompt }}<|im_start|>user\n{{ .Prompt }}<|im_end|>\n{{ end }}<|im_start|>assistant\n{{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}",
+      "system": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "3.1B",
+        "quantization_level": "Q4_K_M"
+      },
+      "model_info": {
+        "general.architecture": "qwen2",
+        "general.base_model.0.name": "Qwen2.5 3B",
+        "general.base_model.0.organization": "Qwen",
+        "general.base_model.0.repo_url": "https://huggingface.co/Qwen/Qwen2.5-3B",
+        "general.base_model.count": 1,
+        "general.basename": "Qwen2.5",
+        "general.file_type": 15,
+        "general.finetune": "Instruct",
+        "general.languages": [
+          "en"
+        ],
+        "general.license": "other",
+        "general.license.link": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/blob/main/LICENSE",
+        "general.license.name": "qwen-research",
+        "general.parameter_count": 3085938688,
+        "general.quantization_version": 2,
+        "general.size_label": "3B",
+        "general.tags": [
+          "chat",
+          "text-generation"
+        ],
+        "general.type": "model",
+        "qwen2.attention.head_count": 16,
+        "qwen2.attention.head_count_kv": 2,
+        "qwen2.attention.layer_norm_rms_epsilon": 1e-06,
+        "qwen2.block_count": 36,
+        "qwen2.context_length": 32768,
+        "qwen2.embedding_length": 2048,
+        "qwen2.feed_forward_length": 11008,
+        "qwen2.rope.freq_base": 1000000,
+        "tokenizer.ggml.add_bos_token": false,
+        "tokenizer.ggml.bos_token_id": 151643,
+        "tokenizer.ggml.eos_token_id": 151645,
+        "tokenizer.ggml.merges": [],
+        "tokenizer.ggml.model": "gpt2",
+        "tokenizer.ggml.padding_token_id": 151643,
+        "tokenizer.ggml.pre": "qwen2",
+        "tokenizer.ggml.token_type": [],
+        "tokenizer.ggml.tokens": []
+      },
+      "capabilities": [
+        "completion",
+        "tools"
+      ],
+      "modified_at": "2026-10-04T19:47:49.4809605+03:00"
+    },
+    "llama3.2:3b": {
+      "thinking": {
+        "values": [
+          false
+        ],
+        "default": false
+      },
+      "license": "LLAMA 3.2 COMMUNITY LICENSE AGREEMENT\nLlama 3.2 Version Release Date: September 25, 2024\n\n“Agreement” means the terms and conditions for use, reproduction, distribution \nand modification of the Llama Materials set forth herein.\n\n“Documentation” means the specifications, manuals and documentation accompanying Llama 3.2\ndistributed by Meta at https://llama.meta.com/doc/overview.\n\n“Licensee” or “you” means you, or your employer or any other person or entity (if you are \nentering into this Agreement on such person or entity’s behalf), of the age required under\napplicable laws, rules or regulations to provide legal consent and that has legal authority\nto bind your employer or such other person or entity if you are entering in this Agreement\non their behalf.\n\n“Llama 3.2” means the foundational large language models and software and algorithms, including\nmachine-learning model code, trained model weights, inference-enabling code, training-enabling code,\nfine-tuning enabling code and other elements of the foregoing distributed by Meta at \nhttps://www.llama.com/llama-downloads.\n\n“Llama Materials” means, collectively, Meta’s proprietary Llama 3.2 and Documentation (and \nany portion thereof) made available under this Agreement.\n\n“Meta” or “we” means Meta Platforms Ireland Limited (if you are located in or, \nif you are an entity, your principal place of business is in the EEA or Switzerland) \nand Meta Platforms, Inc. (if you are located outside of the EEA or Switzerland). \n\n\nBy clicking “I Accept” below or by using or distributing any portion or element of the Llama Materials,\nyou agree to be bound by this Agreement.\n\n\n1. License Rights and Redistribution.\n\n    a. Grant of Rights. You are granted a non-exclusive, worldwide, \nnon-transferable and royalty-free limited license under Meta’s intellectual property or other rights \nowned by Meta embodied in the Llama Materials to use, reproduce, distribute, copy, create derivative works \nof, and make modifications to the Llama Materials.  \n\n    b. Redistribution and Use.  \n\n        i. If you distribute or make available the Llama Materials (or any derivative works thereof), \nor a product or service (including another AI model) that contains any of them, you shall (A) provide\na copy of this Agreement with any such Llama Materials; and (B) prominently display “Built with Llama”\non a related website, user interface, blogpost, about page, or product documentation. If you use the\nLlama Materials or any outputs or results of the Llama Materials to create, train, fine tune, or\notherwise improve an AI model, which is distributed or made available, you shall also include “Llama”\nat the beginning of any such AI model name.\n\n        ii. If you receive Llama Materials, or any derivative works thereof, from a Licensee as part\nof an integrated end user product, then Section 2 of this Agreement will not apply to you. \n\n        iii. You must retain in all copies of the Llama Materials that you distribute the \nfollowing attribution notice within a “Notice” text file distributed as a part of such copies: \n“Llama 3.2 is licensed under the Llama 3.2 Community License, Copyright © Meta Platforms,\nInc. All Rights Reserved.”\n\n        iv. Your use of the Llama Materials must comply with applicable laws and regulations\n(including trade compliance laws and regulations) and adhere to the Acceptable Use Policy for\nthe Llama Materials (available at https://www.llama.com/llama3_2/use-policy), which is hereby \nincorporated by reference into this Agreement.\n  \n2. Additional Commercial Terms. If, on the Llama 3.2 version release date, the monthly active users\nof the products or services made available by or for Licensee, or Licensee’s affiliates, \nis greater than 700 million monthly active users in the preceding calendar month, you must request \na license from Meta, which Meta may grant to you in its sole discretion, and you are not authorized to\nexercise any of the rights under this Agreement unless or until Meta otherwise expressly grants you such rights.\n\n3. Disclaimer of Warranty. UNLESS REQUIRED BY APPLICABLE LAW, THE LLAMA MATERIALS AND ANY OUTPUT AND \nRESULTS THEREFROM ARE PROVIDED ON AN “AS IS” BASIS, WITHOUT WARRANTIES OF ANY KIND, AND META DISCLAIMS\nALL WARRANTIES OF ANY KIND, BOTH EXPRESS AND IMPLIED, INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES\nOF TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE SOLELY RESPONSIBLE\nFOR DETERMINING THE APPROPRIATENESS OF USING OR REDISTRIBUTING THE LLAMA MATERIALS AND ASSUME ANY RISKS ASSOCIATED\nWITH YOUR USE OF THE LLAMA MATERIALS AND ANY OUTPUT AND RESULTS.\n\n4. Limitation of Liability. IN NO EVENT WILL META OR ITS AFFILIATES BE LIABLE UNDER ANY THEORY OF LIABILITY, \nWHETHER IN CONTRACT, TORT, NEGLIGENCE, PRODUCTS LIABILITY, OR OTHERWISE, ARISING OUT OF THIS AGREEMENT, \nFOR ANY LOST PROFITS OR ANY INDIRECT, SPECIAL, CONSEQUENTIAL, INCIDENTAL, EXEMPLARY OR PUNITIVE DAMAGES, EVEN \nIF META OR ITS AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF ANY OF THE FOREGOING.\n\n5. Intellectual Property.\n\n    a. No trademark licenses are granted under this Agreement, and in connection with the Llama Materials, \nneither Meta nor Licensee may use any name or mark owned by or associated with the other or any of its affiliates, \nexcept as required for reasonable and customary use in describing and redistributing the Llama Materials or as \nset forth in this Section 5(a). Meta hereby grants you a license to use “Llama” (the “Mark”) solely as required \nto comply with the last sentence of Section 1.b.i. You will comply with Meta’s brand guidelines (currently accessible \nat https://about.meta.com/brand/resources/meta/company-brand/). All goodwill arising out of your use of the Mark \nwill inure to the benefit of Meta.\n\n    b. Subject to Meta’s ownership of Llama Materials and derivatives made by or for Meta, with respect to any\n    derivative works and modifications of the Llama Materials that are made by you, as between you and Meta,\n    you are and will be the owner of such derivative works and modifications.\n\n    c. If you institute litigation or other proceedings against Meta or any entity (including a cross-claim or\n    counterclaim in a lawsuit) alleging that the Llama Materials or Llama 3.2 outputs or results, or any portion\n    of any of the foregoing, constitutes infringement of intellectual property or other rights owned or licensable\n    by you, then any licenses granted to you under this Agreement shall terminate as of the date such litigation or\n    claim is filed or instituted. You will indemnify and hold harmless Meta from and against any claim by any third\n    party arising out of or related to your use or distribution of the Llama Materials.\n\n6. Term and Termination. The term of this Agreement will commence upon your acceptance of this Agreement or access\nto the Llama Materials and will continue in full force and effect until terminated in accordance with the terms\nand conditions herein. Meta may terminate this Agreement if you are in breach of any term or condition of this\nAgreement. Upon termination of this Agreement, you shall delete and cease use of the Llama Materials. Sections 3,\n4 and 7 shall survive the termination of this Agreement. \n\n7. Governing Law and Jurisdiction. This Agreement will be governed and construed under the laws of the State of \nCalifornia without regard to choice of law principles, and the UN Convention on Contracts for the International\nSale of Goods does not apply to this Agreement. The courts of California shall have exclusive jurisdiction of\nany dispute arising out of this Agreement.\n**Llama 3.2** **Acceptable Use Policy**\n\nMeta is committed to promoting safe and fair use of its tools and features, including Llama 3.2. If you access or use Llama 3.2, you agree to this Acceptable Use Policy (“**Policy**”). The most recent copy of this policy can be found at [https://www.llama.com/llama3_2/use-policy](https://www.llama.com/llama3_2/use-policy).\n\n**Prohibited Uses**\n\nWe want everyone to use Llama 3.2 safely and responsibly. You agree you will not use, or allow others to use, Llama 3.2 to:\n\n\n\n1. Violate the law or others’ rights, including to:\n    1. Engage in, promote, generate, contribute to, encourage, plan, incite, or further illegal or unlawful activity or content, such as:\n        1. Violence or terrorism\n        2. Exploitation or harm to children, including the solicitation, creation, acquisition, or dissemination of child exploitative content or failure to report Child Sexual Abuse Material\n        3. Human trafficking, exploitation, and sexual violence\n        4. The illegal distribution of information or materials to minors, including obscene materials, or failure to employ legally required age-gating in connection with such information or materials.\n        5. Sexual solicitation\n        6. Any other criminal activity\n    1. Engage in, promote, incite, or facilitate the harassment, abuse, threatening, or bullying of individuals or groups of individuals\n    2. Engage in, promote, incite, or facilitate discrimination or other unlawful or harmful conduct in the provision of employment, employment benefits, credit, housing, other economic benefits, or other essential goods and services\n    3. Engage in the unauthorized or unlicensed practice of any profession including, but not limited to, financial, legal, medical/health, or related professional practices\n    4. Collect, process, disclose, generate, or infer private or sensitive information about individuals, including information about individuals’ identity, health, or demographic information, unless you have obtained the right to do so in accordance with applicable law\n    5. Engage in or facilitate any action or generate any content that infringes, misappropriates, or otherwise violates any third-party rights, including the outputs or results of any products or services using the Llama Materials\n    6. Create, generate, or facilitate the creation of malicious code, malware, computer viruses or do anything else that could disable, overburden, interfere with or impair the proper working, integrity, operation or appearance of a website or computer system\n    7. Engage in any action, or facilitate any action, to intentionally circumvent or remove usage restrictions or other safety measures, or to enable functionality disabled by Meta\n2. Engage in, promote, incite, facilitate, or assist in the planning or development of activities that present a risk of death or bodily harm to individuals, including use of Llama 3.2 related to the following:\n    8. Military, warfare, nuclear industries or applications, espionage, use for materials or activities that are subject to the International Traffic Arms Regulations (ITAR) maintained by the United States Department of State or to the U.S. Biological Weapons Anti-Terrorism Act of 1989 or the Chemical Weapons Convention Implementation Act of 1997\n    9. Guns and illegal weapons (including weapon development)\n    10. Illegal drugs and regulated/controlled substances\n    11. Operation of critical infrastructure, transportation technologies, or heavy machinery\n    12. Self-harm or harm to others, including suicide, cutting, and eating disorders\n    13. Any content intended to incite or promote violence, abuse, or any infliction of bodily harm to an individual\n3. Intentionally deceive or mislead others, including use of Llama 3.2 related to the following:\n    14. Generating, promoting, or furthering fraud or the creation or promotion of disinformation\n    15. Generating, promoting, or furthering defamatory content, including the creation of defamatory statements, images, or other content\n    16. Generating, promoting, or further distributing spam\n    17. Impersonating another individual without consent, authorization, or legal right\n    18. Representing that the use of Llama 3.2 or outputs are human-generated\n    19. Generating or facilitating false online engagement, including fake reviews and other means of fake online engagement\n4. Fail to appropriately disclose to end users any known dangers of your AI system\n5. Interact with third party tools, models, or software designed to generate unlawful content or engage in unlawful or harmful conduct and/or represent that the outputs of such tools, models, or software are associated with Meta or Llama 3.2\n\nWith respect to any multimodal models included in Llama 3.2, the rights granted under Section 1(a) of the Llama 3.2 Community License Agreement are not being granted to you if you are an individual domiciled in, or a company with a principal place of business in, the European Union. This restriction does not apply to end users of a product or service that incorporates any such multimodal models.\n\nPlease report any violation of this Policy, software “bug,” or other problems that could lead to a violation of this Policy through one of the following means:\n\n\n\n* Reporting issues with the model: [https://github.com/meta-llama/llama-models/issues](https://l.workplace.com/l.php?u=https%3A%2F%2Fgithub.com%2Fmeta-llama%2Fllama-models%2Fissues&h=AT0qV8W9BFT6NwihiOHRuKYQM_UnkzN_NmHMy91OT55gkLpgi4kQupHUl0ssR4dQsIQ8n3tfd0vtkobvsEvt1l4Ic6GXI2EeuHV8N08OG2WnbAmm0FL4ObkazC6G_256vN0lN9DsykCvCqGZ)\n* Reporting risky content generated by the model: [developers.facebook.com/llama_output_feedback](http://developers.facebook.com/llama_output_feedback)\n* Reporting bugs and security concerns: [facebook.com/whitehat/info](http://facebook.com/whitehat/info)\n* Reporting violations of the Acceptable Use Policy or unlicensed uses of Llama 3.2: LlamaUseReport@meta.com",
+      "modelfile": "# Modelfile generated by \"ollama show\"\n# To build a new Modelfile based on this, replace FROM with:\n# FROM llama3.2:3b\n\nFROM C:\\Users\\Chay\\.ollama\\models\\blobs\\sha256-dde5aa3fc5ffc17176b5e8bdc82f587b24b2678c6c66101bf7da77af9f7ccdff\nTEMPLATE \"\"\"<|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\n\n{{ if .System }}{{ .System }}\n{{- end }}\n{{- if .Tools }}When you receive a tool call response, use the output to format an answer to the orginal user question.\n\nYou are a helpful assistant with tool calling capabilities.\n{{- end }}<|eot_id|>\n{{- range $i, $_ := .Messages }}\n{{- $last := eq (len (slice $.Messages $i)) 1 }}\n{{- if eq .Role \"user\" }}<|start_header_id|>user<|end_header_id|>\n{{- if and $.Tools $last }}\n\nGiven the following functions, please respond with a JSON for a function call with its proper arguments that best answers the given prompt.\n\nRespond in the format {\"name\": function name, \"parameters\": dictionary of argument name and its value}. Do not use variables.\n\n{{ range $.Tools }}\n{{- . }}\n{{ end }}\n{{ .Content }}<|eot_id|>\n{{- else }}\n\n{{ .Content }}<|eot_id|>\n{{- end }}{{ if $last }}<|start_header_id|>assistant<|end_header_id|>\n\n{{ end }}\n{{- else if eq .Role \"assistant\" }}<|start_header_id|>assistant<|end_header_id|>\n{{- if .ToolCalls }}\n{{ range .ToolCalls }}\n{\"name\": \"{{ .Function.Name }}\", \"parameters\": {{ .Function.Arguments }}}{{ end }}\n{{- else }}\n\n{{ .Content }}\n{{- end }}{{ if not $last }}<|eot_id|>{{ end }}\n{{- else if eq .Role \"tool\" }}<|start_header_id|>ipython<|end_header_id|>\n\n{{ .Content }}<|eot_id|>{{ if $last }}<|start_header_id|>assistant<|end_header_id|>\n\n{{ end }}\n{{- end }}\n{{- end }}\"\"\"\nPARAMETER stop <|start_header_id|>\nPARAMETER stop <|end_header_id|>\nPARAMETER stop <|eot_id|>\nLICENSE \"LLAMA 3.2 COMMUNITY LICENSE AGREEMENT\nLlama 3.2 Version Release Date: September 25, 2024\n\n“Agreement” means the terms and conditions for use, reproduction, distribution \nand modification of the Llama Materials set forth herein.\n\n“Documentation” means the specifications, manuals and documentation accompanying Llama 3.2\ndistributed by Meta at https://llama.meta.com/doc/overview.\n\n“Licensee” or “you” means you, or your employer or any other person or entity (if you are \nentering into this Agreement on such person or entity’s behalf), of the age required under\napplicable laws, rules or regulations to provide legal consent and that has legal authority\nto bind your employer or such other person or entity if you are entering in this Agreement\non their behalf.\n\n“Llama 3.2” means the foundational large language models and software and algorithms, including\nmachine-learning model code, trained model weights, inference-enabling code, training-enabling code,\nfine-tuning enabling code and other elements of the foregoing distributed by Meta at \nhttps://www.llama.com/llama-downloads.\n\n“Llama Materials” means, collectively, Meta’s proprietary Llama 3.2 and Documentation (and \nany portion thereof) made available under this Agreement.\n\n“Meta” or “we” means Meta Platforms Ireland Limited (if you are located in or, \nif you are an entity, your principal place of business is in the EEA or Switzerland) \nand Meta Platforms, Inc. (if you are located outside of the EEA or Switzerland). \n\n\nBy clicking “I Accept” below or by using or distributing any portion or element of the Llama Materials,\nyou agree to be bound by this Agreement.\n\n\n1. License Rights and Redistribution.\n\n    a. Grant of Rights. You are granted a non-exclusive, worldwide, \nnon-transferable and royalty-free limited license under Meta’s intellectual property or other rights \nowned by Meta embodied in the Llama Materials to use, reproduce, distribute, copy, create derivative works \nof, and make modifications to the Llama Materials.  \n\n    b. Redistribution and Use.  \n\n        i. If you distribute or make available the Llama Materials (or any derivative works thereof), \nor a product or service (including another AI model) that contains any of them, you shall (A) provide\na copy of this Agreement with any such Llama Materials; and (B) prominently display “Built with Llama”\non a related website, user interface, blogpost, about page, or product documentation. If you use the\nLlama Materials or any outputs or results of the Llama Materials to create, train, fine tune, or\notherwise improve an AI model, which is distributed or made available, you shall also include “Llama”\nat the beginning of any such AI model name.\n\n        ii. If you receive Llama Materials, or any derivative works thereof, from a Licensee as part\nof an integrated end user product, then Section 2 of this Agreement will not apply to you. \n\n        iii. You must retain in all copies of the Llama Materials that you distribute the \nfollowing attribution notice within a “Notice” text file distributed as a part of such copies: \n“Llama 3.2 is licensed under the Llama 3.2 Community License, Copyright © Meta Platforms,\nInc. All Rights Reserved.”\n\n        iv. Your use of the Llama Materials must comply with applicable laws and regulations\n(including trade compliance laws and regulations) and adhere to the Acceptable Use Policy for\nthe Llama Materials (available at https://www.llama.com/llama3_2/use-policy), which is hereby \nincorporated by reference into this Agreement.\n  \n2. Additional Commercial Terms. If, on the Llama 3.2 version release date, the monthly active users\nof the products or services made available by or for Licensee, or Licensee’s affiliates, \nis greater than 700 million monthly active users in the preceding calendar month, you must request \na license from Meta, which Meta may grant to you in its sole discretion, and you are not authorized to\nexercise any of the rights under this Agreement unless or until Meta otherwise expressly grants you such rights.\n\n3. Disclaimer of Warranty. UNLESS REQUIRED BY APPLICABLE LAW, THE LLAMA MATERIALS AND ANY OUTPUT AND \nRESULTS THEREFROM ARE PROVIDED ON AN “AS IS” BASIS, WITHOUT WARRANTIES OF ANY KIND, AND META DISCLAIMS\nALL WARRANTIES OF ANY KIND, BOTH EXPRESS AND IMPLIED, INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES\nOF TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE SOLELY RESPONSIBLE\nFOR DETERMINING THE APPROPRIATENESS OF USING OR REDISTRIBUTING THE LLAMA MATERIALS AND ASSUME ANY RISKS ASSOCIATED\nWITH YOUR USE OF THE LLAMA MATERIALS AND ANY OUTPUT AND RESULTS.\n\n4. Limitation of Liability. IN NO EVENT WILL META OR ITS AFFILIATES BE LIABLE UNDER ANY THEORY OF LIABILITY, \nWHETHER IN CONTRACT, TORT, NEGLIGENCE, PRODUCTS LIABILITY, OR OTHERWISE, ARISING OUT OF THIS AGREEMENT, \nFOR ANY LOST PROFITS OR ANY INDIRECT, SPECIAL, CONSEQUENTIAL, INCIDENTAL, EXEMPLARY OR PUNITIVE DAMAGES, EVEN \nIF META OR ITS AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF ANY OF THE FOREGOING.\n\n5. Intellectual Property.\n\n    a. No trademark licenses are granted under this Agreement, and in connection with the Llama Materials, \nneither Meta nor Licensee may use any name or mark owned by or associated with the other or any of its affiliates, \nexcept as required for reasonable and customary use in describing and redistributing the Llama Materials or as \nset forth in this Section 5(a). Meta hereby grants you a license to use “Llama” (the “Mark”) solely as required \nto comply with the last sentence of Section 1.b.i. You will comply with Meta’s brand guidelines (currently accessible \nat https://about.meta.com/brand/resources/meta/company-brand/). All goodwill arising out of your use of the Mark \nwill inure to the benefit of Meta.\n\n    b. Subject to Meta’s ownership of Llama Materials and derivatives made by or for Meta, with respect to any\n    derivative works and modifications of the Llama Materials that are made by you, as between you and Meta,\n    you are and will be the owner of such derivative works and modifications.\n\n    c. If you institute litigation or other proceedings against Meta or any entity (including a cross-claim or\n    counterclaim in a lawsuit) alleging that the Llama Materials or Llama 3.2 outputs or results, or any portion\n    of any of the foregoing, constitutes infringement of intellectual property or other rights owned or licensable\n    by you, then any licenses granted to you under this Agreement shall terminate as of the date such litigation or\n    claim is filed or instituted. You will indemnify and hold harmless Meta from and against any claim by any third\n    party arising out of or related to your use or distribution of the Llama Materials.\n\n6. Term and Termination. The term of this Agreement will commence upon your acceptance of this Agreement or access\nto the Llama Materials and will continue in full force and effect until terminated in accordance with the terms\nand conditions herein. Meta may terminate this Agreement if you are in breach of any term or condition of this\nAgreement. Upon termination of this Agreement, you shall delete and cease use of the Llama Materials. Sections 3,\n4 and 7 shall survive the termination of this Agreement. \n\n7. Governing Law and Jurisdiction. This Agreement will be governed and construed under the laws of the State of \nCalifornia without regard to choice of law principles, and the UN Convention on Contracts for the International\nSale of Goods does not apply to this Agreement. The courts of California shall have exclusive jurisdiction of\nany dispute arising out of this Agreement.\"\nLICENSE \"**Llama 3.2** **Acceptable Use Policy**\n\nMeta is committed to promoting safe and fair use of its tools and features, including Llama 3.2. If you access or use Llama 3.2, you agree to this Acceptable Use Policy (“**Policy**”). The most recent copy of this policy can be found at [https://www.llama.com/llama3_2/use-policy](https://www.llama.com/llama3_2/use-policy).\n\n**Prohibited Uses**\n\nWe want everyone to use Llama 3.2 safely and responsibly. You agree you will not use, or allow others to use, Llama 3.2 to:\n\n\n\n1. Violate the law or others’ rights, including to:\n    1. Engage in, promote, generate, contribute to, encourage, plan, incite, or further illegal or unlawful activity or content, such as:\n        1. Violence or terrorism\n        2. Exploitation or harm to children, including the solicitation, creation, acquisition, or dissemination of child exploitative content or failure to report Child Sexual Abuse Material\n        3. Human trafficking, exploitation, and sexual violence\n        4. The illegal distribution of information or materials to minors, including obscene materials, or failure to employ legally required age-gating in connection with such information or materials.\n        5. Sexual solicitation\n        6. Any other criminal activity\n    1. Engage in, promote, incite, or facilitate the harassment, abuse, threatening, or bullying of individuals or groups of individuals\n    2. Engage in, promote, incite, or facilitate discrimination or other unlawful or harmful conduct in the provision of employment, employment benefits, credit, housing, other economic benefits, or other essential goods and services\n    3. Engage in the unauthorized or unlicensed practice of any profession including, but not limited to, financial, legal, medical/health, or related professional practices\n    4. Collect, process, disclose, generate, or infer private or sensitive information about individuals, including information about individuals’ identity, health, or demographic information, unless you have obtained the right to do so in accordance with applicable law\n    5. Engage in or facilitate any action or generate any content that infringes, misappropriates, or otherwise violates any third-party rights, including the outputs or results of any products or services using the Llama Materials\n    6. Create, generate, or facilitate the creation of malicious code, malware, computer viruses or do anything else that could disable, overburden, interfere with or impair the proper working, integrity, operation or appearance of a website or computer system\n    7. Engage in any action, or facilitate any action, to intentionally circumvent or remove usage restrictions or other safety measures, or to enable functionality disabled by Meta\n2. Engage in, promote, incite, facilitate, or assist in the planning or development of activities that present a risk of death or bodily harm to individuals, including use of Llama 3.2 related to the following:\n    8. Military, warfare, nuclear industries or applications, espionage, use for materials or activities that are subject to the International Traffic Arms Regulations (ITAR) maintained by the United States Department of State or to the U.S. Biological Weapons Anti-Terrorism Act of 1989 or the Chemical Weapons Convention Implementation Act of 1997\n    9. Guns and illegal weapons (including weapon development)\n    10. Illegal drugs and regulated/controlled substances\n    11. Operation of critical infrastructure, transportation technologies, or heavy machinery\n    12. Self-harm or harm to others, including suicide, cutting, and eating disorders\n    13. Any content intended to incite or promote violence, abuse, or any infliction of bodily harm to an individual\n3. Intentionally deceive or mislead others, including use of Llama 3.2 related to the following:\n    14. Generating, promoting, or furthering fraud or the creation or promotion of disinformation\n    15. Generating, promoting, or furthering defamatory content, including the creation of defamatory statements, images, or other content\n    16. Generating, promoting, or further distributing spam\n    17. Impersonating another individual without consent, authorization, or legal right\n    18. Representing that the use of Llama 3.2 or outputs are human-generated\n    19. Generating or facilitating false online engagement, including fake reviews and other means of fake online engagement\n4. Fail to appropriately disclose to end users any known dangers of your AI system\n5. Interact with third party tools, models, or software designed to generate unlawful content or engage in unlawful or harmful conduct and/or represent that the outputs of such tools, models, or software are associated with Meta or Llama 3.2\n\nWith respect to any multimodal models included in Llama 3.2, the rights granted under Section 1(a) of the Llama 3.2 Community License Agreement are not being granted to you if you are an individual domiciled in, or a company with a principal place of business in, the European Union. This restriction does not apply to end users of a product or service that incorporates any such multimodal models.\n\nPlease report any violation of this Policy, software “bug,” or other problems that could lead to a violation of this Policy through one of the following means:\n\n\n\n* Reporting issues with the model: [https://github.com/meta-llama/llama-models/issues](https://l.workplace.com/l.php?u=https%3A%2F%2Fgithub.com%2Fmeta-llama%2Fllama-models%2Fissues&h=AT0qV8W9BFT6NwihiOHRuKYQM_UnkzN_NmHMy91OT55gkLpgi4kQupHUl0ssR4dQsIQ8n3tfd0vtkobvsEvt1l4Ic6GXI2EeuHV8N08OG2WnbAmm0FL4ObkazC6G_256vN0lN9DsykCvCqGZ)\n* Reporting risky content generated by the model: [developers.facebook.com/llama_output_feedback](http://developers.facebook.com/llama_output_feedback)\n* Reporting bugs and security concerns: [facebook.com/whitehat/info](http://facebook.com/whitehat/info)\n* Reporting violations of the Acceptable Use Policy or unlicensed uses of Llama 3.2: LlamaUseReport@meta.com\"\n",
+      "parameters": "stop                           \"<|start_header_id|>\"\nstop                           \"<|end_header_id|>\"\nstop                           \"<|eot_id|>\"",
+      "template": "<|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\n\n{{ if .System }}{{ .System }}\n{{- end }}\n{{- if .Tools }}When you receive a tool call response, use the output to format an answer to the orginal user question.\n\nYou are a helpful assistant with tool calling capabilities.\n{{- end }}<|eot_id|>\n{{- range $i, $_ := .Messages }}\n{{- $last := eq (len (slice $.Messages $i)) 1 }}\n{{- if eq .Role \"user\" }}<|start_header_id|>user<|end_header_id|>\n{{- if and $.Tools $last }}\n\nGiven the following functions, please respond with a JSON for a function call with its proper arguments that best answers the given prompt.\n\nRespond in the format {\"name\": function name, \"parameters\": dictionary of argument name and its value}. Do not use variables.\n\n{{ range $.Tools }}\n{{- . }}\n{{ end }}\n{{ .Content }}<|eot_id|>\n{{- else }}\n\n{{ .Content }}<|eot_id|>\n{{- end }}{{ if $last }}<|start_header_id|>assistant<|end_header_id|>\n\n{{ end }}\n{{- else if eq .Role \"assistant\" }}<|start_header_id|>assistant<|end_header_id|>\n{{- if .ToolCalls }}\n{{ range .ToolCalls }}\n{\"name\": \"{{ .Function.Name }}\", \"parameters\": {{ .Function.Arguments }}}{{ end }}\n{{- else }}\n\n{{ .Content }}\n{{- end }}{{ if not $last }}<|eot_id|>{{ end }}\n{{- else if eq .Role \"tool\" }}<|start_header_id|>ipython<|end_header_id|>\n\n{{ .Content }}<|eot_id|>{{ if $last }}<|start_header_id|>assistant<|end_header_id|>\n\n{{ end }}\n{{- end }}\n{{- end }}",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "llama",
+        "families": [
+          "llama"
+        ],
+        "parameter_size": "3.2B",
+        "quantization_level": "Q4_K_M"
+      },
+      "model_info": {
+        "general.architecture": "llama",
+        "general.basename": "Llama-3.2",
+        "general.file_type": 15,
+        "general.finetune": "Instruct",
+        "general.languages": [
+          "en",
+          "de",
+          "fr",
+          "it",
+          "pt",
+          "hi",
+          "es",
+          "th"
+        ],
+        "general.parameter_count": 3212749888,
+        "general.quantization_version": 2,
+        "general.size_label": "3B",
+        "general.tags": [
+          "facebook",
+          "meta",
+          "pytorch",
+          "llama",
+          "llama-3",
+          "text-generation"
+        ],
+        "general.type": "model",
+        "llama.attention.head_count": 24,
+        "llama.attention.head_count_kv": 8,
+        "llama.attention.key_length": 128,
+        "llama.attention.layer_norm_rms_epsilon": 1e-05,
+        "llama.attention.value_length": 128,
+        "llama.block_count": 28,
+        "llama.context_length": 131072,
+        "llama.embedding_length": 3072,
+        "llama.feed_forward_length": 8192,
+        "llama.rope.dimension_count": 128,
+        "llama.rope.freq_base": 500000,
+        "llama.vocab_size": 128256,
+        "tokenizer.ggml.bos_token_id": 128000,
+        "tokenizer.ggml.eos_token_id": 128009,
+        "tokenizer.ggml.merges": [],
+        "tokenizer.ggml.model": "gpt2",
+        "tokenizer.ggml.pre": "llama-bpe",
+        "tokenizer.ggml.token_type": [],
+        "tokenizer.ggml.tokens": []
+      },
+      "capabilities": [
+        "completion",
+        "tools"
+      ],
+      "modified_at": "2026-10-04T19:55:38.2758534+03:00"
+    },
+    "gemma3:4b": {
+      "license": "Gemma Terms of Use \n\nLast modified: February 21, 2024\n\nBy using, reproducing, modifying, distributing, performing or displaying any portion or element of Gemma, Model Derivatives including via any Hosted Service, (each as defined below) (collectively, the \"Gemma Services\") or otherwise accepting the terms of this Agreement, you agree to be bound by this Agreement.\n\nSection 1: DEFINITIONS\n1.1 Definitions\n(a) \"Agreement\" or \"Gemma Terms of Use\" means these terms and conditions that govern the use, reproduction, Distribution or modification of the Gemma Services and any terms and conditions incorporated by reference.\n\n(b) \"Distribution\" or \"Distribute\" means any transmission, publication, or other sharing of Gemma or Model Derivatives to a third party, including by providing or making Gemma or its functionality available as a hosted service via API, web access, or any other electronic or remote means (\"Hosted Service\").\n\n(c) \"Gemma\" means the set of machine learning language models, trained model weights and parameters identified at ai.google.dev/gemma, regardless of the source that you obtained it from.\n\n(d) \"Google\" means Google LLC.\n\n(e) \"Model Derivatives\" means all (i) modifications to Gemma, (ii) works based on Gemma, or (iii) any other machine learning model which is created by transfer of patterns of the weights, parameters, operations, or Output of Gemma, to that model in order to cause that model to perform similarly to Gemma, including distillation methods that use intermediate data representations or methods based on the generation of synthetic data Outputs by Gemma for training that model. For clarity, Outputs are not deemed Model Derivatives.\n\n(f) \"Output\" means the information content output of Gemma or a Model Derivative that results from operating or otherwise using Gemma or the Model Derivative, including via a Hosted Service.\n\n1.2\nAs used in this Agreement, \"including\" means \"including without limitation\".\n\nSection 2: ELIGIBILITY AND USAGE\n2.1 Eligibility\nYou represent and warrant that you have the legal capacity to enter into this Agreement (including being of sufficient age of consent). If you are accessing or using any of the Gemma Services for or on behalf of a legal entity, (a) you are entering into this Agreement on behalf of yourself and that legal entity, (b) you represent and warrant that you have the authority to act on behalf of and bind that entity to this Agreement and (c) references to \"you\" or \"your\" in the remainder of this Agreement refers to both you (as an individual) and that entity.\n\n2.2 Use\nYou may use, reproduce, modify, Distribute, perform or display any of the Gemma Services only in accordance with the terms of this Agreement, and must not violate (or encourage or permit anyone else to violate) any term of this Agreement.\n\nSection 3: DISTRIBUTION AND RESTRICTIONS\n3.1 Distribution and Redistribution\nYou may reproduce or Distribute copies of Gemma or Model Derivatives if you meet all of the following conditions:\n\nYou must include the use restrictions referenced in Section 3.2 as an enforceable provision in any agreement (e.g., license agreement, terms of use, etc.) governing the use and/or distribution of Gemma or Model Derivatives and you must provide notice to subsequent users you Distribute to that Gemma or Model Derivatives are subject to the use restrictions in Section 3.2.\nYou must provide all third party recipients of Gemma or Model Derivatives a copy of this Agreement.\nYou must cause any modified files to carry prominent notices stating that you modified the files.\nAll Distributions (other than through a Hosted Service) must be accompanied by a \"Notice\" text file that contains the following notice: \"Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms\".\nYou may add your own intellectual property statement to your modifications and, except as set forth in this Section, may provide additional or different terms and conditions for use, reproduction, or Distribution of your modifications, or for any such Model Derivatives as a whole, provided your use, reproduction, modification, Distribution, performance, and display of Gemma otherwise complies with the terms and conditions of this Agreement. Any additional or different terms and conditions you impose must not conflict with the terms of this Agreement.\n\n3.2 Use Restrictions\nYou must not use any of the Gemma Services:\n\nfor the restricted uses set forth in the Gemma Prohibited Use Policy at ai.google.dev/gemma/prohibited_use_policy (\"Prohibited Use Policy\"), which is hereby incorporated by reference into this Agreement; or\nin violation of applicable laws and regulations.\nTo the maximum extent permitted by law, Google reserves the right to restrict (remotely or otherwise) usage of any of the Gemma Services that Google reasonably believes are in violation of this Agreement.\n\n3.3 Generated Output\nGoogle claims no rights in Outputs you generate using Gemma. You and your users are solely responsible for Outputs and their subsequent uses.\n\nSection 4: ADDITIONAL PROVISIONS\n4.1 Updates\nGoogle may update Gemma from time to time, and you must make reasonable efforts to use the latest version of Gemma.\n\n4.2 Trademarks\nNothing in this Agreement grants you any rights to use Google's trademarks, trade names, logos or to otherwise suggest endorsement or misrepresent the relationship between you and Google. Google reserves any rights not expressly granted herein.\n\n4.3 DISCLAIMER OF WARRANTY\nUNLESS REQUIRED BY APPLICABLE LAW, THE GEMMA SERVICES, AND OUTPUTS, ARE PROVIDED ON AN \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY WARRANTIES OR CONDITIONS OF TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING, REPRODUCING, MODIFYING, PERFORMING, DISPLAYING OR OR DISTRIBUTING ANY OF THE GEMMA SERVICES OR OUTPUTS AND ASSUME ANY AND ALL RISKS ASSOCIATED WITH YOUR USE OR DISTRIBUTION OF ANY OF THE GEMMA SERVICES OR OUTPUTS AND YOUR EXERCISE OF RIGHTS AND PERMISSIONS UNDER THIS AGREEMENT.\n\n4.4 LIMITATION OF LIABILITY\nTO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT AND UNDER NO LEGAL THEORY, WHETHER IN TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY, CONTRACT, OR OTHERWISE, UNLESS REQUIRED BY APPLICABLE LAW, SHALL GOOGLE OR ITS AFFILIATES BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR LOST PROFITS OF ANY KIND ARISING FROM THIS AGREEMENT OR RELATED TO, ANY OF THE GEMMA SERVICES OR OUTPUTS EVEN IF GOOGLE OR ITS AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.\n\n4.5 Term, Termination, and Survival\nThe term of this Agreement will commence upon your acceptance of this Agreement (including acceptance by your use, modification, or Distribution, reproduction, performance or display of any portion or element of the Gemma Services) and will continue in full force and effect until terminated in accordance with the terms of this Agreement. Google may terminate this Agreement if you are in breach of any term of this Agreement. Upon termination of this Agreement, you must delete and cease use and Distribution of all copies of Gemma and Model Derivatives in your possession or control. Sections 1, 2.1, 3.3, 4.2 to 4.9 shall survive the termination of this Agreement.\n\n4.6 Governing Law and Jurisdiction\nThis Agreement will be governed by the laws of the State of California without regard to choice of law principles. The UN Convention on Contracts for the International Sale of Goods does not apply to this Agreement. The state and federal courts of Santa Clara County, California shall have exclusive jurisdiction of any dispute arising out of this Agreement.\n\n4.7 Severability\nIf any provision of this Agreement is held to be invalid, illegal or unenforceable, the remaining provisions shall be unaffected thereby and remain valid as if such provision had not been set forth herein.\n\n4.8 Entire Agreement\nThis Agreement states all the terms agreed between the parties and supersedes all other agreements between the parties as of the date of acceptance relating to its subject matter.\n\n4.9 No Waiver\nGoogle will not be treated as having waived any rights by not exercising (or delaying the exercise of) any rights under this Agreement.\n",
+      "modelfile": "# Modelfile generated by \"ollama show\"\n# To build a new Modelfile based on this, replace FROM with:\n# FROM gemma3:4b\n\nFROM C:\\Users\\Chay\\.ollama\\models\\blobs\\sha256-aeda25e63ebd698fab8638ffb778e68bed908b960d39d0becc650fa981609d25\nTEMPLATE \"\"\"{{- range $i, $_ := .Messages }}\n{{- $last := eq (len (slice $.Messages $i)) 1 }}\n{{- if or (eq .Role \"user\") (eq .Role \"system\") }}<start_of_turn>user\n{{ .Content }}<end_of_turn>\n{{ if $last }}<start_of_turn>model\n{{ end }}\n{{- else if eq .Role \"assistant\" }}<start_of_turn>model\n{{ .Content }}{{ if not $last }}<end_of_turn>\n{{ end }}\n{{- end }}\n{{- end }}\"\"\"\nPARAMETER stop <end_of_turn>\nPARAMETER temperature 1\nPARAMETER top_k 64\nPARAMETER top_p 0.95\nLICENSE \"\"\"Gemma Terms of Use \n\nLast modified: February 21, 2024\n\nBy using, reproducing, modifying, distributing, performing or displaying any portion or element of Gemma, Model Derivatives including via any Hosted Service, (each as defined below) (collectively, the \"Gemma Services\") or otherwise accepting the terms of this Agreement, you agree to be bound by this Agreement.\n\nSection 1: DEFINITIONS\n1.1 Definitions\n(a) \"Agreement\" or \"Gemma Terms of Use\" means these terms and conditions that govern the use, reproduction, Distribution or modification of the Gemma Services and any terms and conditions incorporated by reference.\n\n(b) \"Distribution\" or \"Distribute\" means any transmission, publication, or other sharing of Gemma or Model Derivatives to a third party, including by providing or making Gemma or its functionality available as a hosted service via API, web access, or any other electronic or remote means (\"Hosted Service\").\n\n(c) \"Gemma\" means the set of machine learning language models, trained model weights and parameters identified at ai.google.dev/gemma, regardless of the source that you obtained it from.\n\n(d) \"Google\" means Google LLC.\n\n(e) \"Model Derivatives\" means all (i) modifications to Gemma, (ii) works based on Gemma, or (iii) any other machine learning model which is created by transfer of patterns of the weights, parameters, operations, or Output of Gemma, to that model in order to cause that model to perform similarly to Gemma, including distillation methods that use intermediate data representations or methods based on the generation of synthetic data Outputs by Gemma for training that model. For clarity, Outputs are not deemed Model Derivatives.\n\n(f) \"Output\" means the information content output of Gemma or a Model Derivative that results from operating or otherwise using Gemma or the Model Derivative, including via a Hosted Service.\n\n1.2\nAs used in this Agreement, \"including\" means \"including without limitation\".\n\nSection 2: ELIGIBILITY AND USAGE\n2.1 Eligibility\nYou represent and warrant that you have the legal capacity to enter into this Agreement (including being of sufficient age of consent). If you are accessing or using any of the Gemma Services for or on behalf of a legal entity, (a) you are entering into this Agreement on behalf of yourself and that legal entity, (b) you represent and warrant that you have the authority to act on behalf of and bind that entity to this Agreement and (c) references to \"you\" or \"your\" in the remainder of this Agreement refers to both you (as an individual) and that entity.\n\n2.2 Use\nYou may use, reproduce, modify, Distribute, perform or display any of the Gemma Services only in accordance with the terms of this Agreement, and must not violate (or encourage or permit anyone else to violate) any term of this Agreement.\n\nSection 3: DISTRIBUTION AND RESTRICTIONS\n3.1 Distribution and Redistribution\nYou may reproduce or Distribute copies of Gemma or Model Derivatives if you meet all of the following conditions:\n\nYou must include the use restrictions referenced in Section 3.2 as an enforceable provision in any agreement (e.g., license agreement, terms of use, etc.) governing the use and/or distribution of Gemma or Model Derivatives and you must provide notice to subsequent users you Distribute to that Gemma or Model Derivatives are subject to the use restrictions in Section 3.2.\nYou must provide all third party recipients of Gemma or Model Derivatives a copy of this Agreement.\nYou must cause any modified files to carry prominent notices stating that you modified the files.\nAll Distributions (other than through a Hosted Service) must be accompanied by a \"Notice\" text file that contains the following notice: \"Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms\".\nYou may add your own intellectual property statement to your modifications and, except as set forth in this Section, may provide additional or different terms and conditions for use, reproduction, or Distribution of your modifications, or for any such Model Derivatives as a whole, provided your use, reproduction, modification, Distribution, performance, and display of Gemma otherwise complies with the terms and conditions of this Agreement. Any additional or different terms and conditions you impose must not conflict with the terms of this Agreement.\n\n3.2 Use Restrictions\nYou must not use any of the Gemma Services:\n\nfor the restricted uses set forth in the Gemma Prohibited Use Policy at ai.google.dev/gemma/prohibited_use_policy (\"Prohibited Use Policy\"), which is hereby incorporated by reference into this Agreement; or\nin violation of applicable laws and regulations.\nTo the maximum extent permitted by law, Google reserves the right to restrict (remotely or otherwise) usage of any of the Gemma Services that Google reasonably believes are in violation of this Agreement.\n\n3.3 Generated Output\nGoogle claims no rights in Outputs you generate using Gemma. You and your users are solely responsible for Outputs and their subsequent uses.\n\nSection 4: ADDITIONAL PROVISIONS\n4.1 Updates\nGoogle may update Gemma from time to time, and you must make reasonable efforts to use the latest version of Gemma.\n\n4.2 Trademarks\nNothing in this Agreement grants you any rights to use Google's trademarks, trade names, logos or to otherwise suggest endorsement or misrepresent the relationship between you and Google. Google reserves any rights not expressly granted herein.\n\n4.3 DISCLAIMER OF WARRANTY\nUNLESS REQUIRED BY APPLICABLE LAW, THE GEMMA SERVICES, AND OUTPUTS, ARE PROVIDED ON AN \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY WARRANTIES OR CONDITIONS OF TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING, REPRODUCING, MODIFYING, PERFORMING, DISPLAYING OR OR DISTRIBUTING ANY OF THE GEMMA SERVICES OR OUTPUTS AND ASSUME ANY AND ALL RISKS ASSOCIATED WITH YOUR USE OR DISTRIBUTION OF ANY OF THE GEMMA SERVICES OR OUTPUTS AND YOUR EXERCISE OF RIGHTS AND PERMISSIONS UNDER THIS AGREEMENT.\n\n4.4 LIMITATION OF LIABILITY\nTO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT AND UNDER NO LEGAL THEORY, WHETHER IN TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY, CONTRACT, OR OTHERWISE, UNLESS REQUIRED BY APPLICABLE LAW, SHALL GOOGLE OR ITS AFFILIATES BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR LOST PROFITS OF ANY KIND ARISING FROM THIS AGREEMENT OR RELATED TO, ANY OF THE GEMMA SERVICES OR OUTPUTS EVEN IF GOOGLE OR ITS AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.\n\n4.5 Term, Termination, and Survival\nThe term of this Agreement will commence upon your acceptance of this Agreement (including acceptance by your use, modification, or Distribution, reproduction, performance or display of any portion or element of the Gemma Services) and will continue in full force and effect until terminated in accordance with the terms of this Agreement. Google may terminate this Agreement if you are in breach of any term of this Agreement. Upon termination of this Agreement, you must delete and cease use and Distribution of all copies of Gemma and Model Derivatives in your possession or control. Sections 1, 2.1, 3.3, 4.2 to 4.9 shall survive the termination of this Agreement.\n\n4.6 Governing Law and Jurisdiction\nThis Agreement will be governed by the laws of the State of California without regard to choice of law principles. The UN Convention on Contracts for the International Sale of Goods does not apply to this Agreement. The state and federal courts of Santa Clara County, California shall have exclusive jurisdiction of any dispute arising out of this Agreement.\n\n4.7 Severability\nIf any provision of this Agreement is held to be invalid, illegal or unenforceable, the remaining provisions shall be unaffected thereby and remain valid as if such provision had not been set forth herein.\n\n4.8 Entire Agreement\nThis Agreement states all the terms agreed between the parties and supersedes all other agreements between the parties as of the date of acceptance relating to its subject matter.\n\n4.9 No Waiver\nGoogle will not be treated as having waived any rights by not exercising (or delaying the exercise of) any rights under this Agreement.\n\"\"\"\n",
+      "parameters": "stop                           \"<end_of_turn>\"\ntemperature                    1\ntop_k                          64\ntop_p                          0.95",
+      "template": "{{- range $i, $_ := .Messages }}\n{{- $last := eq (len (slice $.Messages $i)) 1 }}\n{{- if or (eq .Role \"user\") (eq .Role \"system\") }}<start_of_turn>user\n{{ .Content }}<end_of_turn>\n{{ if $last }}<start_of_turn>model\n{{ end }}\n{{- else if eq .Role \"assistant\" }}<start_of_turn>model\n{{ .Content }}{{ if not $last }}<end_of_turn>\n{{ end }}\n{{- end }}\n{{- end }}",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "gemma3",
+        "families": [
+          "gemma3"
+        ],
+        "parameter_size": "4.3B",
+        "quantization_level": "Q4_K_M"
+      },
+      "model_info": {
+        "gemma3.attention.head_count": 8,
+        "gemma3.attention.head_count_kv": 4,
+        "gemma3.attention.key_length": 256,
+        "gemma3.attention.sliding_window": 1024,
+        "gemma3.attention.value_length": 256,
+        "gemma3.block_count": 34,
+        "gemma3.context_length": 131072,
+        "gemma3.embedding_length": 2560,
+        "gemma3.feed_forward_length": 10240,
+        "gemma3.mm.tokens_per_image": 256,
+        "gemma3.vision.attention.head_count": 16,
+        "gemma3.vision.attention.layer_norm_epsilon": 1e-06,
+        "gemma3.vision.block_count": 27,
+        "gemma3.vision.embedding_length": 1152,
+        "gemma3.vision.feed_forward_length": 4304,
+        "gemma3.vision.image_size": 896,
+        "gemma3.vision.num_channels": 3,
+        "gemma3.vision.patch_size": 14,
+        "general.architecture": "gemma3",
+        "general.file_type": 15,
+        "general.parameter_count": 4299915632,
+        "general.quantization_version": 2,
+        "tokenizer.ggml.add_bos_token": true,
+        "tokenizer.ggml.add_eos_token": false,
+        "tokenizer.ggml.add_padding_token": false,
+        "tokenizer.ggml.add_unknown_token": false,
+        "tokenizer.ggml.bos_token_id": 2,
+        "tokenizer.ggml.eos_token_id": 1,
+        "tokenizer.ggml.merges": [],
+        "tokenizer.ggml.model": "llama",
+        "tokenizer.ggml.padding_token_id": 0,
+        "tokenizer.ggml.pre": "default",
+        "tokenizer.ggml.scores": [],
+        "tokenizer.ggml.token_type": [],
+        "tokenizer.ggml.tokens": [],
+        "tokenizer.ggml.unknown_token_id": 3
+      },
+      "capabilities": [
+        "completion",
+        "vision"
+      ],
+      "modified_at": "2026-10-04T20:04:06.5493782+03:00"
+    }
+  },
+  "tokenization_benchmarks": {
+    "qwen2.5:3b": {
+      "P1": {
+        "status": "ok",
+        "text": "Напиши вежливое деловое письмо коллеге Марии на русском языке. Встречу по проекту «Атлас» нужно перенести с 12 октября, 14:00, на 13 октября, 11:00, потому что отчёт ещё не готов. Попроси подтвердить новое время. Подпись: Артём. Объём: 60–90 слов, включая приветствие и подпись. Не добавляй фактов, которых нет в задании. Верни только текст письма.",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:65180/tokenize",
+        "token_count": 141,
+        "samples_s": [
+          0.001104900031350553,
+          0.0009258999489247799,
+          0.0008415000047534704,
+          0.0007483999943360686,
+          0.0007315000402741134,
+          0.0007068000268191099,
+          0.0007155999774113297,
+          0.0007668000180274248,
+          0.0006834999658167362,
+          0.0006987000233493745,
+          0.0006733000045642257,
+          0.0007936999900266528,
+          0.0008551999926567078,
+          0.0007259999983943999,
+          0.0006942999898456037,
+          0.0006656000041402876,
+          0.0006561999907717109,
+          0.0006485999911092222,
+          0.0006452000234276056,
+          0.0006459999713115394
+        ],
+        "tokenization_s": 0.0007112000021152198,
+        "tokenization_tokens_per_s": 198256.46735186162
+      },
+      "P2": {
+        "status": "ok",
+        "text": "Классифицируй обращения. Допустимые метки: Billing (платежи), Tech support (техническая поддержка), Sales (покупка и тарифы). Для каждого обращения выбери ровно одну метку. Верни только JSON-объект: ключи — номера обращений строками, значения — метки. Без пояснений и Markdown.\n1. С карты дважды списали деньги за одну подписку.\n2. После обновления приложение закрывается при запуске.\n3. Можно ли купить годовой тариф для команды из десяти человек?\n4. Оплата прошла, но в счёте указана неверная сумма.\n5. При загрузке файла появляется ошибка 500.\n6. Есть ли скидка при покупке ста лицензий?",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:65180/tokenize",
+        "token_count": 201,
+        "samples_s": [
+          0.0012178000179119408,
+          0.0012238000053912401,
+          0.001269600004889071,
+          0.0009855999960564077,
+          0.0009642000077292323,
+          0.00092889997176826,
+          0.0008608000352978706,
+          0.0008583999588154256,
+          0.000876300036907196,
+          0.0008970999624580145,
+          0.0009901000303216279,
+          0.0011291999835520983,
+          0.0009447999764233828,
+          0.0009523999760858715,
+          0.0009018999990075827,
+          0.000874500023201108,
+          0.0009336000075563788,
+          0.0008981999708339572,
+          0.0010600999812595546,
+          0.0008783999946899712
+        ],
+        "tokenization_s": 0.0009391999919898808,
+        "tokenization_tokens_per_s": 214011.9268678248
+      },
+      "P3": {
+        "status": "ok",
+        "text": "Извлеки характеристики товара из описания. Верни только JSON-объект с ключами name, price_rub, weight_g, battery_hours, color, warranty_months. Числовые значения должны быть числами, name и color — строками. Если характеристика не указана, используй null. Не делай предположений. Без пояснений и Markdown.\nОписание: Беспроводные наушники «Вектор А2» чёрного цвета стоят 3490 рублей. Масса — 180 граммов. Работают до 24 часов без подзарядки. В комплекте зарядный кабель и чехол.",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:65180/tokenize",
+        "token_count": 161,
+        "samples_s": [
+          0.0010715999524109066,
+          0.0009175000013783574,
+          0.0008481999975629151,
+          0.0008259000023826957,
+          0.0010535999899730086,
+          0.0008702999912202358,
+          0.0008422000100836158,
+          0.0007952000014483929,
+          0.0007966000121086836,
+          0.0008762999786995351,
+          0.0009091999963857234,
+          0.0008187000057660043,
+          0.0008215999696403742,
+          0.0008100999984890223,
+          0.0008618999854661524,
+          0.0009131000260822475,
+          0.0008047999581322074,
+          0.0007788999937474728,
+          0.0009717000066302717,
+          0.0007822000188753009
+        ],
+        "tokenization_s": 0.0008452000038232654,
+        "tokenization_tokens_per_s": 190487.45772801217
+      }
+    },
+    "llama3.2:3b": {
+      "P1": {
+        "status": "ok",
+        "text": "Напиши вежливое деловое письмо коллеге Марии на русском языке. Встречу по проекту «Атлас» нужно перенести с 12 октября, 14:00, на 13 октября, 11:00, потому что отчёт ещё не готов. Попроси подтвердить новое время. Подпись: Артём. Объём: 60–90 слов, включая приветствие и подпись. Не добавляй фактов, которых нет в задании. Верни только текст письма.",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:49248/tokenize",
+        "token_count": 125,
+        "samples_s": [
+          0.0009193000150844455,
+          0.0009618999902158976,
+          0.0007233999785967171,
+          0.0006979000172577798,
+          0.0006837999681010842,
+          0.0006935000419616699,
+          0.0006924000335857272,
+          0.0006819000118412077,
+          0.0006899999571032822,
+          0.0006573999999091029,
+          0.0009381999843753874,
+          0.0006959000020287931,
+          0.0006703000399284065,
+          0.0006621000356972218,
+          0.0006548999808728695,
+          0.0006475999834947288,
+          0.0006843000301159918,
+          0.0006438999553211033,
+          0.0006873999955132604,
+          0.0006658000056631863
+        ],
+        "tokenization_s": 0.0006858500128146261,
+        "tokenization_tokens_per_s": 182255.5918414562
+      },
+      "P2": {
+        "status": "ok",
+        "text": "Классифицируй обращения. Допустимые метки: Billing (платежи), Tech support (техническая поддержка), Sales (покупка и тарифы). Для каждого обращения выбери ровно одну метку. Верни только JSON-объект: ключи — номера обращений строками, значения — метки. Без пояснений и Markdown.\n1. С карты дважды списали деньги за одну подписку.\n2. После обновления приложение закрывается при запуске.\n3. Можно ли купить годовой тариф для команды из десяти человек?\n4. Оплата прошла, но в счёте указана неверная сумма.\n5. При загрузке файла появляется ошибка 500.\n6. Есть ли скидка при покупке ста лицензий?",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:49248/tokenize",
+        "token_count": 193,
+        "samples_s": [
+          0.0012996000004932284,
+          0.0012998000020161271,
+          0.001111700024921447,
+          0.0010993999894708395,
+          0.0010661999695003033,
+          0.001031499996315688,
+          0.0009044000180438161,
+          0.0008898999658413231,
+          0.0008729000110179186,
+          0.0010516000329516828,
+          0.0008711000555194914,
+          0.0008555000531487167,
+          0.0008708000532351434,
+          0.0008579000132158399,
+          0.0008750000270083547,
+          0.0008691999828442931,
+          0.0008535999804735184,
+          0.0008488000021316111,
+          0.0008350000134669244,
+          0.0008437999640591443
+        ],
+        "tokenization_s": 0.0008739500190131366,
+        "tokenization_tokens_per_s": 220836.42748579074
+      },
+      "P3": {
+        "status": "ok",
+        "text": "Извлеки характеристики товара из описания. Верни только JSON-объект с ключами name, price_rub, weight_g, battery_hours, color, warranty_months. Числовые значения должны быть числами, name и color — строками. Если характеристика не указана, используй null. Не делай предположений. Без пояснений и Markdown.\nОписание: Беспроводные наушники «Вектор А2» чёрного цвета стоят 3490 рублей. Масса — 180 граммов. Работают до 24 часов без подзарядки. В комплекте зарядный кабель и чехол.",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:49248/tokenize",
+        "token_count": 151,
+        "samples_s": [
+          0.0032454999745823443,
+          0.0029778999742120504,
+          0.002528199984226376,
+          0.0018588000093586743,
+          0.0013088000123389065,
+          0.0012939000152982771,
+          0.002003300003707409,
+          0.0019750999636016786,
+          0.0017524000140838325,
+          0.0017844999674707651,
+          0.00117350002983585,
+          0.0010248000035062432,
+          0.001367199991364032,
+          0.0013568000285886228,
+          0.001216100004967302,
+          0.0009745000279508531,
+          0.0008704999927431345,
+          0.0008635999984107912,
+          0.0021849999902769923,
+          0.001046599994879216
+        ],
+        "tokenization_s": 0.0013620000099763274,
+        "tokenization_tokens_per_s": 110866.3721688405
+      }
+    },
+    "gemma3:4b": {
+      "P1": {
+        "status": "ok",
+        "text": "Напиши вежливое деловое письмо коллеге Марии на русском языке. Встречу по проекту «Атлас» нужно перенести с 12 октября, 14:00, на 13 октября, 11:00, потому что отчёт ещё не готов. Попроси подтвердить новое время. Подпись: Артём. Объём: 60–90 слов, включая приветствие и подпись. Не добавляй фактов, которых нет в задании. Верни только текст письма.",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:50150/tokenize",
+        "token_count": 115,
+        "samples_s": [
+          0.0007944999961182475,
+          0.0007315999828279018,
+          0.0006544000352732837,
+          0.000623099971562624,
+          0.0009742000256665051,
+          0.0009052000241354108,
+          0.0006905000191181898,
+          0.0006667999550700188,
+          0.000654200033750385,
+          0.0006051999516785145,
+          0.0005951999919489026,
+          0.0006376000237651169,
+          0.0006055000121705234,
+          0.0005981999565847218,
+          0.0005856000352650881,
+          0.0005837999633513391,
+          0.0005840000230818987,
+          0.0005764999659731984,
+          0.0006531000253744423,
+          0.0006779999821446836
+        ],
+        "tokenization_s": 0.0006453500245697796,
+        "tokenization_tokens_per_s": 178197.87033658882
+      },
+      "P2": {
+        "status": "ok",
+        "text": "Классифицируй обращения. Допустимые метки: Billing (платежи), Tech support (техническая поддержка), Sales (покупка и тарифы). Для каждого обращения выбери ровно одну метку. Верни только JSON-объект: ключи — номера обращений строками, значения — метки. Без пояснений и Markdown.\n1. С карты дважды списали деньги за одну подписку.\n2. После обновления приложение закрывается при запуске.\n3. Можно ли купить годовой тариф для команды из десяти человек?\n4. Оплата прошла, но в счёте указана неверная сумма.\n5. При загрузке файла появляется ошибка 500.\n6. Есть ли скидка при покупке ста лицензий?",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:50150/tokenize",
+        "token_count": 168,
+        "samples_s": [
+          0.0014182999730110168,
+          0.0011103000142611563,
+          0.0009588999673724174,
+          0.0008987000328488648,
+          0.000964400009252131,
+          0.0008125000167638063,
+          0.0008888000156730413,
+          0.0009375999798066914,
+          0.0008741999627090991,
+          0.0009012999944388866,
+          0.0008670000243000686,
+          0.0007718999986536801,
+          0.0007625999860465527,
+          0.0007654000073671341,
+          0.0008574000094085932,
+          0.000927999964915216,
+          0.0008438000222668052,
+          0.0008088999893516302,
+          0.0008902999688871205,
+          0.0008298000320792198
+        ],
+        "tokenization_s": 0.0008814999891910702,
+        "tokenization_tokens_per_s": 190584.23376064844
+      },
+      "P3": {
+        "status": "ok",
+        "text": "Извлеки характеристики товара из описания. Верни только JSON-объект с ключами name, price_rub, weight_g, battery_hours, color, warranty_months. Числовые значения должны быть числами, name и color — строками. Если характеристика не указана, используй null. Не делай предположений. Без пояснений и Markdown.\nОписание: Беспроводные наушники «Вектор А2» чёрного цвета стоят 3490 рублей. Масса — 180 граммов. Работают до 24 часов без подзарядки. В комплекте зарядный кабель и чехол.",
+        "scope": "raw_prompt_without_chat_template",
+        "timing_scope": "runner_http_roundtrip",
+        "repeats": 20,
+        "runner_url": "http://127.0.0.1:50150/tokenize",
+        "token_count": 141,
+        "samples_s": [
+          0.0011970000341534615,
+          0.0009192000143229961,
+          0.0007658000104129314,
+          0.0007402999908663332,
+          0.0007581000099889934,
+          0.0007539999787695706,
+          0.0007692000363022089,
+          0.0007654999499209225,
+          0.0007408999954350293,
+          0.0007208000170066953,
+          0.0007056000176817179,
+          0.0008912999765016139,
+          0.0008998999837785959,
+          0.00086830003419891,
+          0.0007300000288523734,
+          0.0007189000025391579,
+          0.000810900004580617,
+          0.004453099973034114,
+          0.0007796999998390675,
+          0.0007726000039838254
+        ],
+        "tokenization_s": 0.0007675000233575702,
+        "tokenization_tokens_per_s": 183713.34945785347
+      }
+    }
+  },
+  "warmups": [
+    {
+      "model": "qwen2.5:3b",
+      "started_at": "2026-10-04T17:41:10.520382+00:00",
+      "request": {
+        "model": "qwen2.5:3b",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Ответь одним словом: готов."
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 16
+      },
+      "status": "ok",
+      "http_status": 200,
+      "answer": "Да",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 38,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 3,
+        "total_tokens": 41
+      },
+      "raw_chunks": [
+        {
+          "id": "chatcmpl-92",
+          "object": "chat.completion.chunk",
+          "created": 1791135675,
+          "model": "qwen2.5:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Д"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-92",
+          "object": "chat.completion.chunk",
+          "created": 1791135675,
+          "model": "qwen2.5:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "а"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-92",
+          "object": "chat.completion.chunk",
+          "created": 1791135675,
+          "model": "qwen2.5:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-92",
+          "object": "chat.completion.chunk",
+          "created": 1791135675,
+          "model": "qwen2.5:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [],
+          "usage": {
+            "prompt_tokens": 38,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 3,
+            "total_tokens": 41
+          },
+          "timings": {
+            "prompt_n": 38,
+            "prompt_ms": 83,
+            "prompt_per_token_ms": 2.1842105263157894,
+            "prompt_per_second": 457.8313253012048,
+            "predicted_n": 3,
+            "predicted_ms": 36,
+            "predicted_per_token_ms": 12,
+            "predicted_per_second": 83.33333333333333
+          }
+        }
+      ],
+      "metrics": {
+        "elapsed_s": 4.896227499993984,
+        "response_headers_s": 4.859270500019193,
+        "first_text_s": 4.8597093999851495,
+        "last_text_s": 4.882686699973419,
+        "prompt_tokens": 38,
+        "completion_tokens": 3,
+        "total_tokens": 41,
+        "cached_prompt_tokens": 0,
+        "output_tokens_per_request_second": 0.6127166272408066,
+        "tokenization_s": null,
+        "tokenization_tokens_per_s": null,
+        "server_prompt_eval_s": null,
+        "server_generation_s": null,
+        "server_generation_tokens_per_s": null,
+        "answer_chars": 2,
+        "answer_words": 1,
+        "repeated_word_trigram_fraction": 0
+      }
+    },
+    {
+      "model": "llama3.2:3b",
+      "started_at": "2026-10-04T17:41:51.706215+00:00",
+      "request": {
+        "model": "llama3.2:3b",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Ответь одним словом: готов."
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 16
+      },
+      "status": "ok",
+      "http_status": 200,
+      "answer": "Готов.",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 34,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 4,
+        "total_tokens": 38
+      },
+      "raw_chunks": [
+        {
+          "id": "chatcmpl-928",
+          "object": "chat.completion.chunk",
+          "created": 1791135741,
+          "model": "llama3.2:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Г"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-928",
+          "object": "chat.completion.chunk",
+          "created": 1791135741,
+          "model": "llama3.2:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "отов"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-928",
+          "object": "chat.completion.chunk",
+          "created": 1791135741,
+          "model": "llama3.2:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-928",
+          "object": "chat.completion.chunk",
+          "created": 1791135741,
+          "model": "llama3.2:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-928",
+          "object": "chat.completion.chunk",
+          "created": 1791135741,
+          "model": "llama3.2:3b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [],
+          "usage": {
+            "prompt_tokens": 34,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 4,
+            "total_tokens": 38
+          },
+          "timings": {
+            "prompt_n": 34,
+            "prompt_ms": 10573,
+            "prompt_per_token_ms": 310.97058823529414,
+            "prompt_per_second": 3.215738201078218,
+            "predicted_n": 4,
+            "predicted_ms": 33,
+            "predicted_per_token_ms": 8.25,
+            "predicted_per_second": 121.21212121212122
+          }
+        }
+      ],
+      "metrics": {
+        "elapsed_s": 29.81813140003942,
+        "response_headers_s": 29.78487180004595,
+        "first_text_s": 29.78500770003302,
+        "last_text_s": 29.808184100023936,
+        "prompt_tokens": 34,
+        "completion_tokens": 4,
+        "total_tokens": 38,
+        "cached_prompt_tokens": 0,
+        "output_tokens_per_request_second": 0.13414656828545307,
+        "tokenization_s": null,
+        "tokenization_tokens_per_s": null,
+        "server_prompt_eval_s": null,
+        "server_generation_s": null,
+        "server_generation_tokens_per_s": null,
+        "answer_chars": 6,
+        "answer_words": 1,
+        "repeated_word_trigram_fraction": 0
+      }
+    },
+    {
+      "model": "gemma3:4b",
+      "started_at": "2026-10-04T17:43:06.219905+00:00",
+      "request": {
+        "model": "gemma3:4b",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Ответь одним словом: готов."
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 16
+      },
+      "status": "ok",
+      "http_status": 200,
+      "answer": "Готов.\n",
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 19,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 5,
+        "total_tokens": 24
+      },
+      "raw_chunks": [
+        {
+          "id": "chatcmpl-58",
+          "object": "chat.completion.chunk",
+          "created": 1791135819,
+          "model": "gemma3:4b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "Го"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-58",
+          "object": "chat.completion.chunk",
+          "created": 1791135819,
+          "model": "gemma3:4b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "тов"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-58",
+          "object": "chat.completion.chunk",
+          "created": 1791135819,
+          "model": "gemma3:4b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-58",
+          "object": "chat.completion.chunk",
+          "created": 1791135819,
+          "model": "gemma3:4b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "\n"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-58",
+          "object": "chat.completion.chunk",
+          "created": 1791135819,
+          "model": "gemma3:4b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-58",
+          "object": "chat.completion.chunk",
+          "created": 1791135819,
+          "model": "gemma3:4b",
+          "system_fingerprint": "fp_ollama",
+          "choices": [],
+          "usage": {
+            "prompt_tokens": 19,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens": 5,
+            "total_tokens": 24
+          },
+          "timings": {
+            "prompt_n": 19,
+            "prompt_ms": 5121,
+            "prompt_per_token_ms": 269.5263157894737,
+            "prompt_per_second": 3.7102128490529194,
+            "predicted_n": 5,
+            "predicted_ms": 60,
+            "predicted_per_token_ms": 12,
+            "predicted_per_second": 83.33333333333333
+          }
+        }
+      ],
+      "metrics": {
+        "elapsed_s": 33.78673079999862,
+        "response_headers_s": 33.727280399994925,
+        "first_text_s": 33.72740009997506,
+        "last_text_s": 33.77348869998241,
+        "prompt_tokens": 19,
+        "completion_tokens": 5,
+        "total_tokens": 24,
+        "cached_prompt_tokens": 0,
+        "output_tokens_per_request_second": 0.14798709083745398,
+        "tokenization_s": null,
+        "tokenization_tokens_per_s": null,
+        "server_prompt_eval_s": null,
+        "server_generation_s": null,
+        "server_generation_tokens_per_s": null,
+        "answer_chars": 7,
+        "answer_words": 1,
+        "repeated_word_trigram_fraction": 0
+      }
+    }
+  ],
+  "notes": [
+    "Основные генерации идут через /v1/chat/completions. Каждый ответ имеет отдельный native_measurement через /api/chat для серверных длительностей.",
+    "A не задаёт параметры генерации; B меняет temperature, top_p, max_tokens. Seed и JSON mode не задаются.",
+    "first_text_s — клиентское время до первого непустого текстового фрагмента, не точное серверное время до первого токена.",
+    "output_tokens_per_request_second включает обработку входа, сеть и служебные задержки; это не чистая скорость генерации.",
+    "OpenAI endpoint не отдаёт отдельное время токенизации и серверные длительности; недоступные показатели равны null.",
+    "Серверные длительности native_measurement относятся только к его собственному response, а не к основному answer.",
+    "Токенизация сырого промпта измеряется через внутренний /tokenize локального runner: медиана 20 запросов после прогрева, включая HTTP и разбор JSON. Chat template и специальные токены не добавляются.",
+    "Внутренний API runner может различаться между версиями Ollama; ошибки токенизации сохраняются явно.",
+    "Кэш Ollama не очищается. История в каждом запросе новая. Порядок A/B чередуется между повторами.",
+    "Переменные окружения относятся к процессу скрипта; настройки сервера проверяются по /api/ps."
+  ],
+  "status": "completed",
+  "finished_at": "2026-10-04T17:44:55.248815+00:00",
+  "saved_runs": 90
+}
