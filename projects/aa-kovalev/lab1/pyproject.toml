@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = ["httpx>=0.28,<0.29", "psutil>=7,<8"]
 
 [dependency-groups]
-analysis = ["pandas>=2.2,<3", "matplotlib>=3.9,<4", "ipykernel>=6,<8", "nbclient>=0.10,<1"]
+analysis = ["pandas>=2.2,<3", "matplotlib>=3.9,<4", "ipykernel>=6,<8"]
 
 [tool.uv]
 package = false
