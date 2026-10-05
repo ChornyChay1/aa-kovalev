@@ -46,7 +46,12 @@ class API:
     def request(self, service, method, path, body=None):
         url = self.config[service + '_url'].rstrip('/') + path
         response = self.client.request(method, url, json=body)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise httpx.HTTPStatusError(
+                f'{error}\nОтвет {service}: {response.text}',
+                request=error.request, response=error.response) from error
         value = response.json()
         if value.get('error'):
             raise ValueError(str(value['error']))
