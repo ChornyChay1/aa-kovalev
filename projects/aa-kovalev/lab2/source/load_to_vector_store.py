@@ -24,7 +24,7 @@ def load(folder, reset=False):
             dense = points[0]['vector'].get('dense')
             body = {'vectors': {'dense': {'size': len(dense), 'distance': 'Cosine'}} if dense else {},
                 'hnsw_config': {'m': config['hnsw']['m'], 'ef_construct': config['hnsw']['ef_construct'],
-                                'full_scan_threshold': 0},
+                                'full_scan_threshold': 10},
                 'optimizers_config': {'indexing_threshold': 1}}
             if config['vectorization'] != 'dense':
                 body['sparse_vectors'] = {'sparse': {}}
