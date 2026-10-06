@@ -59,7 +59,8 @@ class RAG:
             'model': self.config['llm'], 'messages': [{'role': 'user', 'content': prompt}],
             'temperature': 0.2, 'max_tokens': 512, 'stream': False})
         answer = response['choices'][0]['message']['content']
-        cited = sorted({int(i) for i in re.findall(r'\[(\d+)\]', answer)})
+        groups = re.findall(r'\[(\d+(?:\s*,\s*\d+)*)\]', answer)
+        cited = sorted({int(i) for group in groups for i in group.split(',')})
         citations = [{'number': i, 'source': c['title'], 'page': c['page'], 'section': c['section'],
             'snippet': c['text'], 'url': '/document#page=' + str(c['page'])}
             for i, c in enumerate(contexts, 1) if i in cited]
