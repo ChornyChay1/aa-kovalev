@@ -4,52 +4,40 @@ from pathlib import Path
 import json
 import re
 from time import perf_counter
-import tiktoken
-from common import ROOT, ARTIFACTS, API, BM25, settings, digest, read, write
+from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter
+from common import ROOT, ARTIFACTS, API, BM25, settings, digest, read, write, get_tokenizer
 from prepare import prepare
 
 
 def split_pages(pages, config):
-    tokenizer = tiktoken.get_encoding(config['tokenizer'])
+    tokenizer = get_tokenizer(config)
     chunks = []
     for page in pages:
-        sections = re.split(r'(?m)(?=^#{1,3} )', page['text']) if config['splitter'] == 'markdown' else [page['text']]
-        for section in sections:
-            if not config['include_headings']:
-                section = re.sub(r'(?m)^#{1,6} .*\n?', '', section)
-            if not section.strip():
-                continue
-            prefix = (page['section'] + '\n\n') if config['include_headings'] else ''
-            # Use Unicode character boundaries, measuring every candidate in tokens.
-            # This avoids corrupting Cyrillic characters at token-byte boundaries.
-            budget = config['chunk_size'] - len(tokenizer.encode(prefix))
-            if budget < 32:
-                raise ValueError('Заголовок слишком длинный для chunk_size')
-            start = 0
-            while start < len(section):
-                low, high = start + 1, len(section)
-                while low < high:
-                    middle = (low + high + 1) // 2
-                    if len(tokenizer.encode(prefix + section[start:middle])) <= config['chunk_size']:
-                        low = middle
-                    else:
-                        high = middle - 1
-                end = low
-                text = prefix + section[start:end]
-                tokens = len(tokenizer.encode(text))
-                assert tokens <= config['chunk_size']
-                chunks.append({**{k: v for k, v in page.items() if k != 'text'},
-                    'id': len(chunks), 'text': text, 'tokens': tokens})
-                if end == len(section):
-                    break
-                low, high = start + 1, end
-                while low < high:
-                    middle = (low + high) // 2
-                    if len(tokenizer.encode(section[middle:end])) <= config['overlap']:
-                        high = middle
-                    else:
-                        low = middle + 1
-                start = low
+        text = page['text']
+        if not config['include_headings']:
+            text = re.sub(r'(?m)^#{1,6} .*\n?', '', text)
+        prefix = (page['section'] + '\n\n') if config['include_headings'] else ''
+        # Count the complete input, including the heading and BGE special tokens.
+        # The splitter cuts strings, so Cyrillic characters remain intact.
+        def token_count(body):
+            return len(tokenizer.encode(prefix + body, add_special_tokens=True))
+
+        prefix_tokens = token_count('')
+        budget = config['chunk_size'] - prefix_tokens
+        if budget <= config['overlap']:
+            raise ValueError('Заголовок слишком длинный для chunk_size')
+        splitter_type = (MarkdownTextSplitter if config['splitter'] == 'markdown'
+                         else RecursiveCharacterTextSplitter)
+        options = {'is_separator_regex': True} if config['splitter'] == 'markdown' else {'separators': ['']}
+        splitter = splitter_type(
+            chunk_size=budget, chunk_overlap=config['overlap'],
+            length_function=lambda body: len(tokenizer.encode(body, add_special_tokens=True)), **options)
+        for body in splitter.split_text(text):
+            tokens = token_count(body)
+            if tokens > config['chunk_size']:
+                raise ValueError('Фрагмент превышает chunk_size с учётом заголовка')
+            chunks.append({**{k: v for k, v in page.items() if k != 'text'},
+                'id': len(chunks), 'text': prefix + body, 'tokens': tokens})
     return chunks
 
 

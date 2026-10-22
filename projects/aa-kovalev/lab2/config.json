@@ -15,7 +15,7 @@
   "qdrant_url": "http://localhost:6333",
   "llm": "gemma3:4b",
   "embedding_model": "bge-m3:567m",
-  "tokenizer": "cl100k_base",
+  "tokenizer": "BAAI/bge-m3",
   "splitter": "markdown",
   "chunk_size": 256,
   "overlap": 32,

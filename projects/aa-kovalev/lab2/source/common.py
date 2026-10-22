@@ -1,5 +1,7 @@
 """Общие настройки, REST-клиенты и разреженные BM25-векторы."""
 from collections import Counter
+from functools import lru_cache
+from transformers import AutoTokenizer
 from pathlib import Path
 import hashlib
 import json
@@ -34,6 +36,21 @@ def settings(variant='dense_small', path=None):
     if config['vectorization'] not in ('dense', 'sparse', 'hybrid'):
         raise ValueError('vectorization: dense, sparse или hybrid')
     return config
+
+# Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
+EMBEDDING_TOKENIZERS = {'bge-m3': 'BAAI/bge-m3', 'bge-m3:567m': 'BAAI/bge-m3',
+                        'bge-m3:latest': 'BAAI/bge-m3'}
+
+@lru_cache(maxsize=None)
+def _load_tokenizer(name):
+    return AutoTokenizer.from_pretrained(name)
+
+def get_tokenizer(config):
+    expected = EMBEDDING_TOKENIZERS.get(config['embedding_model'])
+    if expected is None or config['tokenizer'] != expected:
+        raise ValueError('Для bge-m3 используйте tokenizer=BAAI/bge-m3; '
+                         'для другой модели сначала задайте соответствие токенизатора')
+    return _load_tokenizer(expected)
 
 class API:
     def __init__(self, config):
