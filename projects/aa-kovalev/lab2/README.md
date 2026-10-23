@@ -14,7 +14,7 @@
 - `langchain-text-splitters`: готовый рекурсивный `MarkdownTextSplitter`.
 - Qdrant 1.16.3 в Docker; HTTPX — обращения к Qdrant и Ollama.
 - Dense-эмбеддинги: `bge-m3:567m` через Ollama `/api/embed`, без обрезания входа.
-- Sparse: BM25 (`k1=1.2`, `b=0.75`), разреженные векторы хранятся в Qdrant.
+- Sparse: готовый `Qdrant/bm25` через FastEmbed с русским стеммингом; Qdrant хранит разреженные векторы и вычисляет IDF.
 - Hybrid: объединение dense/BM25 через RRF в Qdrant.
 - Ответы: `gemma3:4b` из лабы 1 через `/v1/chat/completions`;
   `temperature=0.2`, `max_tokens=512`, три контекстных фрагмента.
@@ -74,24 +74,25 @@ PDF уже проверен и преобразован в 107 непустых 
 | `dense_large` | MarkdownTextSplitter | 512 | 64 | Dense |
 | `hybrid_large` | MarkdownTextSplitter | 512 | 64 | Dense + BM25, RRF |
 
-Параметры: `splitter` (`markdown`/`window`), `chunk_size` (100–1000), `overlap`,
-`include_headings`, `embedding_model`, `vectorization` (`dense`/`sparse`/`hybrid`).
+Параметры: `chunk_size` (100–1000), `overlap`, `embedding_model`,
+`vectorization` (`dense`/`hybrid`). Разбиение Markdown и сохранение заголовков
+фиксированы; токенизатор выбирается автоматически по модели эмбеддингов.
 Размер измеряется токенизатором `BAAI/bge-m3` — тем же словарём модели BGE-M3,
 которая строит эмбеддинги документов и вопросов в Ollama. Учитываются добавленный
 заголовок и специальные токены. `tiktoken` больше не используется.
 `MarkdownTextSplitter` рекурсивно делит по Markdown-разделителям, абзацам, строкам,
-словам и при необходимости символам. `window` использует пакетный
-`RecursiveCharacterTextSplitter` с разбиением по символам. Overlap — верхняя граница;
-фактическое перекрытие зависит от границ разбиения. Чанки не пересекают страницы.
-Токенизатор Gemma для генерации ответа остаётся внутренним токенизатором Gemma;
-подменять его токенизатором BGE нельзя. BM25 отдельно выделяет слова регулярным
-выражением для лексического поиска.
+словам и при необходимости символам. Overlap — верхняя граница; фактическое перекрытие
+зависит от границ разбиения. Чанки не пересекают страницы.
+Токенизатор Gemma для генерации ответа остаётся внутренним токенизатором Gemma.
+BM25 из FastEmbed использует свою обработку слов с русским стеммингом — это
+лексическая модель поиска, а не второй токенизатор для размеров чанков.
 
 
 Qdrant: cosine для dense, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
 параметры также в конфигурации. Для малого корпуса снижен порог построения HNSW.
-Фактическое состояние коллекции сохраняется в `load.json`. BM25 использует слова
-в нижнем регистре, `ё→е`, без стемминга; IDF включён в документный вектор один раз.
+Фактическое состояние коллекции сохраняется в `load.json`. BM25 использует FastEmbed;
+IDF вычисляется Qdrant благодаря `modifier: "idf"` у разреженного вектора. Файл
+`bm25.json` больше не создаётся.
 
 Папка индекса и имя коллекции зависят от конфигурации, текста корпуса, digest модели,
 кода построения и `uv.lock`. Изменение параметров создаёт новую версию. Повторная
@@ -200,14 +201,17 @@ Recall@10 до 1.000. Однако в Q11 и Q13 первым результат
 1. Запустить Docker Desktop и Ollama. Установить зависимости и модель эмбеддингов:
 
    ```powershell
+   uv lock
    uv sync --locked --group analysis
    ollama pull bge-m3:567m
    ollama pull gemma3:4b
    docker compose up -d
    ```
 
-   При первом построении индекса `transformers` скачает токенизатор `BAAI/bge-m3`
-   с Hugging Face (без весов модели); затем используется локальный кэш.
+   При первом построении индекса `transformers` скачает токенизатор `BAAI/bge-m3`,
+   а FastEmbed при гибридном поиске — ресурсы `Qdrant/bm25` для русского языка.
+   Затем используются локальные кэши. `uv lock` нужен один раз после добавления
+   FastEmbed, чтобы обновить файл `uv.lock` перед запуском с `--locked`.
 
    Gemma уже установлена в лабе 1; повторный `pull` не обязателен. Эмбеддинги BGE-M3
    требуют отдельной загрузки около 1,2 ГБ. Модели работают последовательно; Ollama
@@ -261,7 +265,7 @@ Recall@10 до 1.000. Однако в Q11 и Q13 первым результат
 6. Для анализа передать из новой папки `results/`: `metadata.json`, `runs.jsonl`,
    `summary.csv`, `qa_review.csv`. Реальные метрики и выводы затем войдут в этот README.
 
-После обновления токенизатора выполнить `uv sync --locked --group analysis`,
+После обновления BM25 выполнить `uv lock`, `uv sync --locked --group analysis`,
 затем `uv run --locked python source/evaluate.py --rebuild` и перезапустить интерфейс.
 Будут созданы новые индексы и коллекции; старые результаты останутся для сравнения.
 
@@ -269,4 +273,6 @@ Recall@10 до 1.000. Однако в Q11 и Q13 первым результат
 
 Источники API: [Ollama embeddings](https://docs.ollama.com/api/embed),
 [BGE-M3](https://ollama.com/library/bge-m3),
-[Qdrant hybrid search](https://qdrant.tech/documentation/search/hybrid-queries/).
+[Qdrant hybrid search](https://qdrant.tech/documentation/search/hybrid-queries/),
+[FastEmbed BM25](https://github.com/qdrant/fastembed),
+[Qdrant IDF](https://qdrant.tech/documentation/manage-data/indexing/).

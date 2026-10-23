@@ -2,7 +2,7 @@
 from pathlib import Path
 from time import perf_counter
 import re
-from common import ROOT, API, BM25, read
+from common import API, read, get_bm25, sparse_vector
 
 class RAG:
     def __init__(self, folder):
@@ -10,7 +10,7 @@ class RAG:
         self.manifest = read(self.folder / 'manifest.json')
         self.config = self.manifest['config']
         self.api = API(self.config)
-        self.bm25 = BM25(read(self.folder / 'bm25.json'))
+        self.bm25 = get_bm25() if self.config['vectorization'] == 'hybrid' else None
 
     def close(self):
         self.api.close()
@@ -23,10 +23,9 @@ class RAG:
         limit = self.manifest['chunks']
         common = {'limit': limit, 'params': {'hnsw_ef': config['hnsw']['ef_search']}}
         searches = []
-        if config['vectorization'] != 'sparse':
-            searches.append({**common, 'using': 'dense', 'query': self.api.embed([question])[0]})
-        if config['vectorization'] != 'dense':
-            vector = self.bm25.vector(question, query=True)
+        searches.append({**common, 'using': 'dense', 'query': self.api.embed([question])[0]})
+        if self.bm25 is not None:
+            vector = sparse_vector(next(self.bm25.query_embed(question)))
             if vector['indices']:
                 searches.append({**common, 'using': 'sparse', 'query': vector})
         if not searches:

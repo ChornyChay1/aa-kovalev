@@ -1,12 +1,9 @@
-"""Общие настройки, REST-клиенты и разреженные BM25-векторы."""
-from collections import Counter
+"""Общие настройки, REST-клиенты и готовый BM25 из FastEmbed."""
 from functools import lru_cache
 from transformers import AutoTokenizer
 from pathlib import Path
 import hashlib
 import json
-import math
-import re
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,12 +26,10 @@ def settings(variant='dense_small', path=None):
     config = read(path or ROOT / 'config.json')
     overrides = config.pop('variants')[variant]
     config.update(overrides)
-    if config['splitter'] not in ('markdown', 'window'):
-        raise ValueError('splitter: markdown или window')
     if not 100 <= config['chunk_size'] <= 1000 or not 0 <= config['overlap'] < config['chunk_size'] // 2:
         raise ValueError('chunk_size: 100–1000; overlap: от 0 до половины размера')
-    if config['vectorization'] not in ('dense', 'sparse', 'hybrid'):
-        raise ValueError('vectorization: dense, sparse или hybrid')
+    if config['vectorization'] not in ('dense', 'hybrid'):
+        raise ValueError('vectorization: dense или hybrid')
     return config
 
 # Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
@@ -47,9 +42,8 @@ def _load_tokenizer(name):
 
 def get_tokenizer(config):
     expected = EMBEDDING_TOKENIZERS.get(config['embedding_model'])
-    if expected is None or config['tokenizer'] != expected:
-        raise ValueError('Для bge-m3 используйте tokenizer=BAAI/bge-m3; '
-                         'для другой модели сначала задайте соответствие токенизатора')
+    if expected is None:
+        raise ValueError('Неизвестный токенизатор для модели ' + config['embedding_model'])
     return _load_tokenizer(expected)
 
 class API:
@@ -82,33 +76,13 @@ class API:
             raise ValueError('Получены неполные эмбеддинги')
         return vectors
 
-def terms(text):
-    return re.findall(r'\w+', text.casefold().replace('ё', 'е'))
+@lru_cache(maxsize=1)
+def get_bm25():
+    """FastEmbed BM25 для русского корпуса; IDF рассчитывается в Qdrant."""
+    from fastembed import SparseTextEmbedding
+    return SparseTextEmbedding(model_name='Qdrant/bm25', language='russian')
 
-class BM25:
-    """BM25: k1=1.2, b=0.75; IDF включён в вектор документа один раз."""
-    def __init__(self, state):
-        self.state = state
 
-    @classmethod
-    def fit(cls, texts):
-        docs = [terms(text) for text in texts]
-        frequency = Counter(term for doc in docs for term in set(doc))
-        vocabulary = {term: i for i, term in enumerate(sorted(frequency))}
-        return cls({'vocabulary': vocabulary, 'idf': {
-            term: math.log(1 + (len(docs) - count + 0.5) / (count + 0.5))
-            for term, count in frequency.items()},
-            'avg_length': sum(map(len, docs)) / len(docs), 'k1': 1.2, 'b': 0.75})
-
-    def vector(self, text, query=False):
-        counts = Counter(terms(text))
-        vocab, state = self.state['vocabulary'], self.state
-        indices, values = [], []
-        for term in sorted(counts, key=lambda x: vocab.get(x, -1)):
-            if term not in vocab:
-                continue
-            tf = counts[term]
-            value = 1.0 if query else state['idf'][term] * tf * (state['k1'] + 1) / (
-                tf + state['k1'] * (1 - state['b'] + state['b'] * sum(counts.values()) / state['avg_length']))
-            indices.append(vocab[term]); values.append(value)
-        return {'indices': indices, 'values': values}
+def sparse_vector(embedding):
+    """Преобразовать SparseEmbedding из FastEmbed в JSON-вектор Qdrant."""
+    return {'indices': embedding.indices.tolist(), 'values': embedding.values.tolist()}

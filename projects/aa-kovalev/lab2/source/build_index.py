@@ -2,10 +2,9 @@
 import argparse
 from pathlib import Path
 import json
-import re
 from time import perf_counter
-from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter
-from common import ROOT, ARTIFACTS, API, BM25, settings, digest, read, write, get_tokenizer
+from langchain_text_splitters import MarkdownTextSplitter
+from common import ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer, get_bm25, sparse_vector
 from prepare import prepare
 
 
@@ -14,7 +13,7 @@ def split_pages(pages, config):
     chunks = []
     for page in pages:
         text = page['text']
-        prefix = (page['section'] + '\n\n')
+        prefix = page['section'] + '\n\n'
         # Count the complete input, including the heading and BGE special tokens.
         # The splitter cuts strings, so Cyrillic characters remain intact.
         def token_count(body):
@@ -42,14 +41,12 @@ def build(config, rebuild=False):
     corpus = prepare(config)
     api = API(config)
     try:
-        model = None
-        if config['vectorization'] != 'sparse':
-            models = api.request('ollama', 'GET', '/api/tags')['models']
-            model = next((m for m in models if m['name'] == config['embedding_model']), None)
-            if model is None:
-                raise ValueError('Сначала ollama pull ' + config['embedding_model'])
+        models = api.request('ollama', 'GET', '/api/tags')['models']
+        model = next((m for m in models if m['name'] == config['embedding_model']), None)
+        if model is None:
+            raise ValueError('Сначала ollama pull ' + config['embedding_model'])
         identity = {'config': config, 'corpus': read(corpus / 'manifest.json')['pages_sha256'],
-            'embedding_digest': model['digest'] if model else None,
+            'embedding_digest': model['digest'],
             'code_sha256': digest(b''.join((ROOT / 'source' / name).read_bytes()
                 for name in ['common.py', 'prepare.py', 'build_index.py'])),
             'lock_sha256': digest((ROOT / 'uv.lock').read_bytes())}
@@ -57,27 +54,25 @@ def build(config, rebuild=False):
         folder = ARTIFACTS / 'indexes' / version
         if (folder / 'manifest.json').exists() and not rebuild:
             previous = read(folder / 'manifest.json')
-            if ((folder / 'points.json').exists() and (folder / 'bm25.json').exists()
+            if ((folder / 'points.json').exists()
                     and digest((folder / 'points.json').read_bytes()) == previous['points_sha256']):
                 return folder
         started = perf_counter()
         chunks = split_pages(read(corpus / 'pages.json'), config)
-        texts = [c['text'] for c in chunks]
-        bm25 = BM25.fit(texts)
+        bm25 = get_bm25() if config['vectorization'] == 'hybrid' else None
         points = []
         for offset in range(0, len(chunks), 8):
             batch = chunks[offset:offset + 8]
-            dense = api.embed([c['text'] for c in batch]) if config['vectorization'] != 'sparse' else None
+            dense = api.embed([c['text'] for c in batch])
+            sparse = list(bm25.embed([c['text'] for c in batch])) if bm25 else None
             for i, chunk in enumerate(batch):
                 vector = {}
-                if dense is not None:
-                    vector['dense'] = dense[i]
-                if config['vectorization'] != 'dense':
-                    vector['sparse'] = bm25.vector(chunk['text'])
+                vector['dense'] = dense[i]
+                if sparse is not None:
+                    vector['sparse'] = sparse_vector(sparse[i])
                 points.append({'id': chunk['id'], 'payload': chunk, 'vector': vector})
             print(f'Векторы: {min(offset + 8, len(chunks))}/{len(chunks)}', flush=True)
         write(folder / 'points.json', points)
-        write(folder / 'bm25.json', bm25.state)
         write(folder / 'manifest.json', {**identity, 'version': version, 'collection': 'lab2_' + version,
             'chunks': len(chunks), 'corpus_path': str(corpus.relative_to(ROOT)),
             'build_s': perf_counter() - started, 'points_sha256': digest((folder / 'points.json').read_bytes())})
