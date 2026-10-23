@@ -14,9 +14,7 @@ def split_pages(pages, config):
     chunks = []
     for page in pages:
         text = page['text']
-        if not config['include_headings']:
-            text = re.sub(r'(?m)^#{1,6} .*\n?', '', text)
-        prefix = (page['section'] + '\n\n') if config['include_headings'] else ''
+        prefix = (page['section'] + '\n\n')
         # Count the complete input, including the heading and BGE special tokens.
         # The splitter cuts strings, so Cyrillic characters remain intact.
         def token_count(body):
@@ -26,12 +24,11 @@ def split_pages(pages, config):
         budget = config['chunk_size'] - prefix_tokens
         if budget <= config['overlap']:
             raise ValueError('Заголовок слишком длинный для chunk_size')
-        splitter_type = (MarkdownTextSplitter if config['splitter'] == 'markdown'
-                         else RecursiveCharacterTextSplitter)
-        options = {'is_separator_regex': True} if config['splitter'] == 'markdown' else {'separators': ['']}
-        splitter = splitter_type(
+        splitter = MarkdownTextSplitter(
             chunk_size=budget, chunk_overlap=config['overlap'],
-            length_function=lambda body: len(tokenizer.encode(body, add_special_tokens=True)), **options)
+            length_function=lambda body: len(tokenizer.encode(body, add_special_tokens=True)),
+            is_separator_regex=True,
+        )
         for body in splitter.split_text(text):
             tokens = token_count(body)
             if tokens > config['chunk_size']:
