@@ -10,7 +10,7 @@ from uuid import uuid4
 from common import ROOT, ARTIFACTS, read, write, settings
 from build_index import build
 from load_to_vector_store import load
-from rag import RAG
+from rag import RAG, is_repeat_limit_error
 
 
 def metrics(pages, relevant, k):
@@ -46,10 +46,20 @@ def evaluate(args):
                             'hits': hits, 'retrieval_s': elapsed,
                             'metrics': {str(k): metrics([h['page'] for h in hits], set(q['pages']), k) for k in [5, 10]}}
                         if not args.retrieval_only:
-                            row.update(rag.answer(q['question'], hits))
+                            try:
+                                row.update(rag.answer(q['question'], hits))
+                            except Exception as error:
+                                if not is_repeat_limit_error(error):
+                                    raise
+                                # Keep retrieval metrics; never score failed generation as an answer.
+                                row.update(answer='', citations=[], generation_error=str(error),
+                                           generation_retried=True)
+                                print(f"{variant} {q['id']}: Ollama повторяет токены, "
+                                      'ответ не получен', flush=True)
                             reviews.append({'variant': variant, 'id': q['id'], 'question': q['question'],
                                 'expected_answer': q['answer'], 'answer': row['answer'],
-                                'answer_correct_0_or_1': '', 'citations_support_answer_0_or_1': '', 'note': ''})
+                                'answer_correct_0_or_1': '', 'citations_support_answer_0_or_1': '',
+                                'note': 'Ошибка Ollama (повтор токенов), не оценивать' if row.get('generation_error') else ''})
                         log.write(json.dumps(row, ensure_ascii=False) + '\n'); log.flush()
                         records.append(row)
                         print(variant, q['id'], f'{elapsed:.3f} с', flush=True)
@@ -59,7 +69,9 @@ def evaluate(args):
                     'index_build_s': manifest['build_s'], 'load_s': read(folder / 'load.json')['load_s'],
                     'index_bytes': (folder / 'points.json').stat().st_size,
                     'retrieval_s_mean': mean(r['retrieval_s'] for r in records),
-                    'qa_s_mean': mean(r.get('generation_s', 0) for r in records),
+                    'qa_s_mean': (mean(r['generation_s'] for r in records if 'generation_s' in r)
+                                  if any('generation_s' in r for r in records) else None),
+                    'generation_failures': sum('generation_error' in r for r in records),
                     'run_s': perf_counter() - started}
                 for k in [5, 10]:
                     for metric in ['recall', 'precision', 'mrr']:

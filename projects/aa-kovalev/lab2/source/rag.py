@@ -2,7 +2,14 @@
 from pathlib import Path
 from time import perf_counter
 import re
+import httpx
 from common import API, read, get_bm25, sparse_vector
+
+def is_repeat_limit_error(error):
+    return (isinstance(error, httpx.HTTPStatusError)
+            and error.response.status_code == 500
+            and 'token repeat limit reached' in error.response.text.lower())
+
 
 class RAG:
     def __init__(self, folder):
@@ -54,9 +61,19 @@ class RAG:
             'После каждого утверждения укажи номер источника [1], [2] или [3]. '
             'Не выдумывай ссылки и факты.\n\nВОПРОС: ' + question + '\n\nФРАГМЕНТЫ:\n' + text)
         started = perf_counter()
-        response = self.api.request('ollama', 'POST', '/v1/chat/completions', {
+        request = {
             'model': self.config['llm'], 'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': 0.2, 'max_tokens': 512, 'stream': False})
+            'temperature': 0.2, 'max_tokens': 512, 'stream': False}
+        retried = False
+        try:
+            response = self.api.request('ollama', 'POST', '/v1/chat/completions', request)
+        except httpx.HTTPStatusError as error:
+            if not is_repeat_limit_error(error):
+                raise
+            # Single retry with a shorter, less repetitive generation.
+            retried = True
+            request.update(temperature=0.5, max_tokens=320, frequency_penalty=0.3)
+            response = self.api.request('ollama', 'POST', '/v1/chat/completions', request)
         answer = response['choices'][0]['message']['content']
         groups = re.findall(r'\[(\d+(?:\s*,\s*\d+)*)\]', answer)
         cited = sorted({int(i) for group in groups for i in group.split(',')})
@@ -66,4 +83,4 @@ class RAG:
         return {'answer': answer, 'citations': citations, 'contexts': contexts,
             'invalid_citations': [i for i in cited if not 1 <= i <= len(contexts)],
             'usage': response.get('usage', {}), 'finish_reason': response['choices'][0]['finish_reason'],
-            'generation_s': perf_counter() - started}
+            'generation_s': perf_counter() - started, 'generation_retried': retried}
