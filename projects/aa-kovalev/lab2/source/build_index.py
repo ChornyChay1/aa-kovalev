@@ -97,9 +97,11 @@ def build(config, rebuild=False):
         points = []
         for offset in range(0, len(chunks), 8):
             batch = chunks[offset:offset + 8]
-            dense = api.embed([c['text'] for c in batch]) if config['vectorization'] == 'dense' else None
-            for i, chunk in enumerate(batch):
-                vector = {'dense': dense[i]} if dense is not None else {'sparse': bm25(chunk['text'])}
+            if config['vectorization'] == 'dense':
+                vectors = [{'dense': vector} for vector in api.embed([c['text'] for c in batch])]
+            elif config['vectorization'] == 'sparse':
+                vectors = [{'sparse': bm25(chunk['text'])} for chunk in batch]
+            for chunk, vector in zip(batch, vectors):
                 points.append({'id': chunk['id'], 'payload': chunk, 'vector': vector})
             print(f'Векторы: {min(offset + 8, len(chunks))}/{len(chunks)}', flush=True)
         write(folder / 'points.json', points)
