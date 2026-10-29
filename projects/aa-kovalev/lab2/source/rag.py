@@ -23,9 +23,7 @@ class RAG:
 
     def retrieve(self, question, k=10):
         started = perf_counter()
-        # Page-level ranking: maximum chunk score, then deduplicate pages.
-        # Request all points for this small corpus so k means k distinct pages.
-        limit = self.manifest['chunks']
+        limit = k
         sparse = self.config['vectorization'] == 'sparse'
         query = bm25(question, self.manifest['bm25_avg_len']) if sparse else self.api.embed([question])[0]
         body = {'limit': limit, 'using': 'sparse' if sparse else 'dense',
@@ -33,29 +31,12 @@ class RAG:
         if not sparse:
             body['params'] = {'hnsw_ef': self.ef_search}
         result = self.api.request('qdrant', 'POST', '/collections/' + self.manifest['collection'] + '/points/query', body)
-        seen, hits = set(), []
-        for point in result['result']['points']:
-            payload = point['payload']
-            for page in range(payload['start_page'], payload['end_page'] + 1):
-                key = (payload['source_id'], page)
-                if key not in seen:
-                    hits.append({**payload, 'page': page, 'score': point['score']})
-                    seen.add(key)
-                if len(hits) == k:
-                    break
-            if len(hits) == k:
-                break
+        hits = [{**point['payload'], 'score': point['score']}
+                for point in result['result']['points']]
         return hits, perf_counter() - started
 
     def answer(self, question, hits):
-        contexts = []
-        seen = set()
-        for hit in hits:
-            if hit['id'] not in seen:
-                contexts.append(hit)
-                seen.add(hit['id'])
-            if len(contexts) == self.context_chunks:
-                break
+        contexts = hits[:self.context_chunks]
         if not contexts:
             return {'answer': 'В документации не найден ответ.', 'citations': [], 'usage': {}, 'generation_s': 0}
         text = '\n\n'.join(f'[{i}] {c["title"]}; PDF {c["start_page"]}–{c["end_page"]}; {c["section"]}\n{c["text"]}'

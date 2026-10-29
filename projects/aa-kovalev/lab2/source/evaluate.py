@@ -16,8 +16,8 @@ from rag import RAG
 VARIANTS = list(CONFIG['variants'])
 K_VALUES = (5, 10)
 
-def metrics(pages, relevant, k):
-    found = [page in relevant for page in pages[:k]]
+def metrics(hits, relevant, k):
+    found = [hit['id'] in relevant for hit in hits[:k]]
     return {'recall': sum(found) / len(relevant), 'precision': sum(found) / k,
             'mrr': next((1 / (i + 1) for i, yes in enumerate(found) if yes), 0)}
 
@@ -38,6 +38,13 @@ def evaluate(args):
                 manifest = load(folder, args.reset)
                 meta['configs'][variant] = manifest
                 write(output / 'metadata.json', meta)
+                chunks = [point['payload'] for point in read(folder / 'points.json')]
+                relevant_chunks = {
+                    q['id']: {c['id'] for c in chunks
+                              if c['source_id'] == q['source_id']
+                              and any(c['start_page'] <= page <= c['end_page'] for page in q['pages'])}
+                    for q in questions
+                }
                 rag = RAG(folder)
                 records = []
                 try:
@@ -46,8 +53,9 @@ def evaluate(args):
                     for q, hits, elapsed in retrieved:
                         row = {'variant': variant, 'id': q['id'], 'question': q['question'],
                             'expected_answer': q['answer'], 'relevant_pages': q['pages'],
+                            'relevant_chunks': sorted(relevant_chunks[q['id']]),
                             'hits': hits, 'retrieval_s': elapsed,
-                            'metrics': {str(k): metrics([h['page'] for h in hits], set(q['pages']), k) for k in K_VALUES}}
+                            'metrics': {str(k): metrics(hits, relevant_chunks[q['id']], k) for k in K_VALUES}}
                         if not args.retrieval_only:
                             row.update(rag.answer(q['question'], hits))
                             reviews.append({'variant': variant, 'id': q['id'], 'question': q['question'],
