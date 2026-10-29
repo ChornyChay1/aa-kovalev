@@ -16,8 +16,8 @@ INCLUDE_HEADINGS = CONFIG['include_headings']
 PAGE_MARKER = re.compile(r'(?m)^<!-- PAGE:(\d+) -->[ \t]*$')
 
 
-def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
-                include_headings=INCLUDE_HEADINGS, embedding_model=EMBEDDING_MODEL):
+def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
+                   include_headings=INCLUDE_HEADINGS, embedding_model=EMBEDDING_MODEL):
     tokenizer = get_tokenizer(embedding_model)
     count_tokens = lambda text: len(tokenizer.encode(text, add_special_tokens=True))
     headers = [('#' * level, '#' * level) for level in range(1, 7)]
@@ -27,10 +27,7 @@ def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
         chunk_size=chunk_size, chunk_overlap=overlap,
         length_function=count_tokens, add_start_index=True)
 
-    # Split headings across the whole book, retaining their hierarchy between pages.
-    markdown = '\n\n'.join(f'<!-- PAGE:{p["page"]} -->\n\n{p["text"]}' for p in pages)
-    page_by_number = {p['page']: p for p in pages}
-    page_number = pages[0]['page']
+    page_number = manifest['selected_pages'][0]
     chunks = []
     for section in header_splitter.split_text(markdown):
         positions, numbers = [0], [page_number]
@@ -50,9 +47,12 @@ def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
             tokens = count_tokens(chunk.page_content)
             if tokens > chunk_size:
                 raise ValueError('Фрагмент превышает chunk_size')
-            chunks.append({**{k: v for k, v in page_by_number[start_page].items() if k != 'text'},
-                'id': len(chunks), 'text': chunk.page_content, 'tokens': tokens,
-                'headings': chunk.metadata, 'start_page': start_page, 'end_page': end_page})
+            source = manifest['source']
+            chunks.append({'id': len(chunks), 'source_id': 'byte_python_ru',
+                'title': source['title'], 'source_url': source['url'], 'source_date': source['date'],
+                'path': 'book.md', 'page': start_page, 'section': manifest['sections'][str(start_page)],
+                'text': chunk.page_content, 'tokens': tokens, 'headings': chunk.metadata,
+                'start_page': start_page, 'end_page': end_page})
     return chunks
 
 def build(config, rebuild=False):
@@ -62,7 +62,8 @@ def build(config, rebuild=False):
     corpus = prepare(config)
     api = API(config)
     try:
-        identity = {'config': config, 'corpus': read(corpus / 'manifest.json')['pages_sha256'],
+        manifest = read(corpus / 'manifest.json')
+        identity = {'config': config, 'corpus': digest((corpus / 'manifest.json').read_bytes()),
                     'splitter_sha256': digest(Path(__file__).read_bytes())}
         version = digest(json.dumps(identity, sort_keys=True).encode())[:16]
         folder = ARTIFACTS / 'indexes' / version
@@ -72,7 +73,7 @@ def build(config, rebuild=False):
                     and digest((folder / 'points.json').read_bytes()) == previous['points_sha256']):
                 return folder
         started = perf_counter()
-        chunks = split_pages(read(corpus / 'pages.json'), **split_options)
+        chunks = split_markdown((corpus / 'book.md').read_text(encoding='utf-8'), manifest, **split_options)
         write(folder / 'chunk_example.json', chunks[0])
         print('Пример чанка:', folder / 'chunk_example.json', flush=True)
         points = []

@@ -1,7 +1,7 @@
-"""Скачать проверенный PDF и сохранить Markdown с метаданными по страницам."""
+"""Подготовить единый Markdown из PDF с маркерами исходных страниц."""
 import argparse
-import json
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 import httpx
@@ -15,13 +15,14 @@ SOURCE = CONFIG['source']
 def prepare(config, pdf=None, rebuild=False):
     source = config.get('source', SOURCE)
     folder = ARTIFACTS / 'corpus' / source['sha256'][:12]
+    markdown_path = folder / 'book.md'
     manifest_path = folder / 'manifest.json'
     parser_hash = digest(Path(__file__).read_bytes())
     if manifest_path.exists() and not rebuild:
         manifest = read(manifest_path)
         if (manifest.get('source') == source and manifest.get('parser_sha256') == parser_hash
-                and (folder / 'book.pdf').exists() and (folder / 'pages.json').exists()
-                and digest((folder / 'pages.json').read_bytes()) == manifest['pages_sha256']):
+                and (folder / 'book.pdf').exists() and markdown_path.exists()
+                and digest(markdown_path.read_bytes()) == manifest.get('markdown_sha256')):
             return folder
     folder.mkdir(parents=True, exist_ok=True)
     if pdf:
@@ -36,37 +37,37 @@ def prepare(config, pdf=None, rebuild=False):
         raise ValueError('SHA256 PDF не совпал с конфигурацией; нужна исходная версия 2.02')
     (folder / 'book.pdf').write_bytes(content)
     doc = pymupdf.open(folder / 'book.pdf')
-    start, end = source['first_page'], source['last_page']
-    if not 1 <= start <= end <= len(doc):
-        raise ValueError('Неверный диапазон PDF')
-    toc = doc.get_toc()
-    pages = pymupdf4llm.to_markdown(doc, pages=list(range(start - 1, end)),
-        page_chunks=True, show_progress=False, margins=(0, 40, 0, 40))
-    records = []
-    for page_number, page in zip(range(start, end + 1), pages, strict=True):
-        sections = []
-        for level, title, number in toc:
-            if number <= page_number:
-                sections = sections[:level-1] + [title]
-        text = page['text'].replace('\r\n', '\n')
-        text = re.sub(r'(?m)^A Byte of Python \(Russian\), Версия 2\.02\s*$', '', text)
-        text = text.replace('\ufffd', '').replace('\uffff', '')  # PDF continuation marker artifacts
-        text = re.sub(r'\n{3,}', '\n\n', text).strip() + '\n'
-        record = {'source_id': 'byte_python_ru', 'title': source['title'],
-            'page': page_number, 'section': ' / '.join(sections), 'source_url': source['url'],
-            'source_date': source['date'], 'path': f'pages/page_{page_number:03}.md', 'text': text}
-        target = folder / record['path']; target.parent.mkdir(exist_ok=True)
-        target.write_text('---\n' + '\n'.join(f'{key}: {json.dumps(value, ensure_ascii=False)}'
-            for key, value in record.items() if key != 'text') + '\n---\n\n' + text, encoding='utf-8')
-        records.append(record)
-    nonempty = sum(len(p['text'].strip()) >= 100 for p in records)
-    if nonempty < 50:
-        raise ValueError(f'Недостаточно страниц текста: {nonempty}')
-    write(folder / 'pages.json', records)
-    write(manifest_path, {'source': source, 'parser_sha256': parser_hash, 'pdf_pages': len(doc), 'text_pages': nonempty,
-        'selected_pages': [start, end], 'prepared_at': datetime.now(timezone.utc).isoformat(),
-        'pages_sha256': digest((folder / 'pages.json').read_bytes())})
-    doc.close()
+    try:
+        start, end = source['first_page'], source['last_page']
+        if not 1 <= start <= end <= len(doc):
+            raise ValueError('Неверный диапазон PDF')
+        toc = doc.get_toc()
+        pages = pymupdf4llm.to_markdown(doc, pages=list(range(start - 1, end)),
+            page_chunks=True, show_progress=False, margins=(0, 40, 0, 40))
+        sections, parts, nonempty = {}, [], 0
+        for page_number, page in zip(range(start, end + 1), pages, strict=True):
+            headings = []
+            for level, title, number in toc:
+                if number <= page_number:
+                    headings = headings[:level - 1] + [title]
+            sections[page_number] = ' / '.join(headings)
+            text = page['text'].replace('\r\n', '\n')
+            text = re.sub(r'(?m)^A Byte of Python \(Russian\), Версия 2\.02\s*$', '', text)
+            text = text.replace('\ufffd', '').replace('\uffff', '')
+            text = re.sub(r'\n{3,}', '\n\n', text).strip()
+            nonempty += len(text) >= 100
+            parts.append(f'<!-- PAGE:{page_number} -->\n\n{text}')
+        if nonempty < 50:
+            raise ValueError(f'Недостаточно страниц текста: {nonempty}')
+        markdown_path.write_text('\n\n'.join(parts) + '\n', encoding='utf-8')
+        write(manifest_path, {'source': source, 'parser_sha256': parser_hash, 'pdf_pages': len(doc),
+            'text_pages': nonempty, 'selected_pages': [start, end], 'sections': sections,
+            'prepared_at': datetime.now(timezone.utc).isoformat(),
+            'markdown_sha256': digest(markdown_path.read_bytes())})
+        (folder / 'pages.json').unlink(missing_ok=True)
+        shutil.rmtree(folder / 'pages', ignore_errors=True)
+    finally:
+        doc.close()
     return folder
 
 if __name__ == '__main__':
