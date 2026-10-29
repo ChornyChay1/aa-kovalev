@@ -1,5 +1,4 @@
 {
-  "splitter": "markdown",
   "chunk_size": 384,
   "overlap": 48,
   "include_headings": true,

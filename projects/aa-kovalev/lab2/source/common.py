@@ -36,8 +36,6 @@ def settings(variant='dense_small', path=None):
     overrides = config.pop('variants')[variant]
     config.update(overrides)
     chunk_size, overlap = config['chunk_size'], config['overlap']
-    if config['splitter'] not in ('markdown', 'recursive'):
-        raise ValueError('splitter: markdown или recursive')
     if not isinstance(config['include_headings'], bool):
         raise ValueError('include_headings: true или false')
     if not 100 <= chunk_size <= 1000 or not 0 <= overlap < chunk_size // 2:

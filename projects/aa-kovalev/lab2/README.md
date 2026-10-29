@@ -11,7 +11,7 @@
 
 - Python 3.11, uv; версии зависимостей закреплены в `uv.lock`.
 - PyMuPDF4LLM — PDF → Markdown; `transformers.AutoTokenizer` (`BAAI/bge-m3`) — измерение размера чанков.
-- `langchain-text-splitters`: `MarkdownHeaderTextSplitter` для заголовков и пакетный разделитель для длинных разделов.
+- `langchain-text-splitters`: `MarkdownHeaderTextSplitter` и `RecursiveCharacterTextSplitter`.
 - Qdrant 1.16.3 в Docker; HTTPX — обращения к Qdrant и Ollama.
 - Dense-эмбеддинги: `bge-m3:567m` через Ollama `/api/embed`, без обрезания входа.
 - Ответы: `gemma3:4b` из лабы 1 через `/v1/chat/completions`;
@@ -56,12 +56,12 @@ PDF содержит 164 страницы. В корпус включены **с
 
 | Вариант | Разбиение | Размер, токены | Overlap | Поиск |
 | --- | --- | --- | --- | --- |
-| `dense_small` | MarkdownTextSplitter | 384 | 48 | Dense |
-| `dense_large` | MarkdownTextSplitter | 768 | 96 | Dense |
+| `dense_small` | Заголовки → Recursive | 384 | 48 | Dense |
+| `dense_large` | Заголовки → Recursive | 768 | 96 | Dense |
 
-Настройки в `config.json`: `splitter` (`markdown` или `recursive`), `chunk_size`,
-`overlap`, `include_headings` (`true`/`false`). Для длинных разделов используются
-`MarkdownTextSplitter` или `RecursiveCharacterTextSplitter` соответственно.
+Настройки в `config.json`: `chunk_size`, `overlap`, `include_headings`
+(`true`/`false`). Разделение всегда выполняется двумя этапами:
+`MarkdownHeaderTextSplitter` → `RecursiveCharacterTextSplitter`.
 
 `MarkdownHeaderTextSplitter(headers_to_split_on=..., strip_headers=not include_headings)`
 выделяет заголовки `#`–`######` и их иерархию в метаданные `headings`.

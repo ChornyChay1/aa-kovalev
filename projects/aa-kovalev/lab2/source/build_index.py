@@ -3,26 +3,23 @@ import argparse
 from pathlib import Path
 import json
 from time import perf_counter
-from langchain_text_splitters import MarkdownHeaderTextSplitter, MarkdownTextSplitter, RecursiveCharacterTextSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from common import CONFIG, EMBEDDING_MODEL, ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer
 from prepare import prepare
 
 CHUNK_SIZE = CONFIG['chunk_size']
 OVERLAP = CONFIG['overlap']
 INCLUDE_HEADINGS = CONFIG['include_headings']
-SPLITTER = CONFIG['splitter']
 
 
 def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
-                include_headings=INCLUDE_HEADINGS, splitter=SPLITTER,
-                embedding_model=EMBEDDING_MODEL):
+                include_headings=INCLUDE_HEADINGS, embedding_model=EMBEDDING_MODEL):
     tokenizer = get_tokenizer(embedding_model)
     count_tokens = lambda text: len(tokenizer.encode(text, add_special_tokens=True))
     headers = [('#' * level, '#' * level) for level in range(1, 7)]
     header_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=headers, strip_headers=not include_headings)
-    splitter_class = {'markdown': MarkdownTextSplitter, 'recursive': RecursiveCharacterTextSplitter}[splitter]
-    text_splitter = splitter_class(
+    text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=overlap, length_function=count_tokens)
 
     chunks = []
@@ -40,7 +37,7 @@ def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
 def build(config, rebuild=False):
     # Explicit overrides keep experiment variants and --config independent of module defaults.
     split_options = {key: config[key] for key in
-                     ('chunk_size', 'overlap', 'include_headings', 'splitter', 'embedding_model')}
+                     ('chunk_size', 'overlap', 'include_headings', 'embedding_model')}
     corpus = prepare(config)
     api = API(config)
     try:
