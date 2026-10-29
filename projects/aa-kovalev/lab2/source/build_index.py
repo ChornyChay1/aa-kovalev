@@ -4,18 +4,23 @@ from pathlib import Path
 import json
 from time import perf_counter
 from langchain_text_splitters import MarkdownHeaderTextSplitter, MarkdownTextSplitter, RecursiveCharacterTextSplitter
-from common import ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer
+from common import CONFIG, EMBEDDING_MODEL, ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer
 from prepare import prepare
 
+CHUNK_SIZE = CONFIG['chunk_size']
+OVERLAP = CONFIG['overlap']
+INCLUDE_HEADINGS = CONFIG['include_headings']
+SPLITTER = CONFIG['splitter']
 
-def split_pages(pages, config):
-    chunk_size, overlap = config['chunk_size'], config['overlap']
-    include_headings, splitter_type = config['include_headings'], config['splitter']
-    tokenizer = get_tokenizer(config)
+
+def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
+                include_headings=INCLUDE_HEADINGS, splitter=SPLITTER,
+                embedding_model=EMBEDDING_MODEL):
+    tokenizer = get_tokenizer(embedding_model)
     count_tokens = lambda text: len(tokenizer.encode(text, add_special_tokens=True))
     headers = [('#' * level, '#' * level) for level in range(1, 7)]
     header_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers, strip_headers=True)
-    splitter_class = {'markdown': MarkdownTextSplitter, 'recursive': RecursiveCharacterTextSplitter}[splitter_type]
+    splitter_class = {'markdown': MarkdownTextSplitter, 'recursive': RecursiveCharacterTextSplitter}[splitter]
     chunks = []
     for page in pages:
         for section in header_splitter.split_text(page['text']):
@@ -25,10 +30,10 @@ def split_pages(pages, config):
             budget = chunk_size - count_tokens(prefix)
             if budget <= overlap:
                 raise ValueError('Заголовки слишком длинные для chunk_size и overlap')
-            splitter = splitter_class(
+            text_splitter = splitter_class(
                 chunk_size=budget, chunk_overlap=overlap,
                 length_function=count_tokens, is_separator_regex=True)
-            for body in splitter.split_text(section.page_content):
+            for body in text_splitter.split_text(section.page_content):
                 text = prefix + body
                 tokens = count_tokens(text)
                 if tokens > chunk_size:
@@ -39,6 +44,9 @@ def split_pages(pages, config):
 
 
 def build(config, rebuild=False):
+    # Explicit overrides keep experiment variants and --config independent of module defaults.
+    split_options = {key: config[key] for key in
+                     ('chunk_size', 'overlap', 'include_headings', 'splitter', 'embedding_model')}
     corpus = prepare(config)
     api = API(config)
     try:
@@ -51,7 +59,7 @@ def build(config, rebuild=False):
                     and digest((folder / 'points.json').read_bytes()) == previous['points_sha256']):
                 return folder
         started = perf_counter()
-        chunks = split_pages(read(corpus / 'pages.json'), config)
+        chunks = split_pages(read(corpus / 'pages.json'), **split_options)
         write(folder / 'chunk_example.json', chunks[0])
         print('Пример чанка:', folder / 'chunk_example.json', flush=True)
         points = []

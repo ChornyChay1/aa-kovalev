@@ -2,14 +2,18 @@
 import argparse
 from pathlib import Path
 from time import perf_counter
-from common import API, ARTIFACTS, ROOT, read, write, digest
+from common import CONFIG, API, ARTIFACTS, ROOT, read, write, digest
 
+
+HNSW_M = CONFIG['hnsw']['m']
+EF_CONSTRUCT = CONFIG['hnsw']['ef_construct']
 
 def load(folder, reset=False):
     folder = Path(folder)
     manifest = read(folder / 'manifest.json')
     config = manifest['config']
-    m, ef_construct = config['hnsw']['m'], config['hnsw']['ef_construct']
+    m = config['hnsw'].get('m', HNSW_M)
+    ef_construct = config['hnsw'].get('ef_construct', EF_CONSTRUCT)
     if digest((folder / 'points.json').read_bytes()) != manifest['points_sha256']:
         raise ValueError('Файл векторов изменён; пересоберите индекс')
     points = read(folder / 'points.json')

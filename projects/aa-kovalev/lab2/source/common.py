@@ -8,6 +8,15 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / 'artifacts'
+CONFIG = json.loads((ROOT / 'config.json').read_text(encoding='utf-8'))
+OLLAMA_URL = CONFIG['ollama_url']
+QDRANT_URL = CONFIG['qdrant_url']
+EMBEDDING_MODEL = CONFIG['embedding_model']
+
+# Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
+EMBEDDING_TOKENIZERS = {'bge-m3': 'BAAI/bge-m3', 'bge-m3:567m': 'BAAI/bge-m3',
+                        'bge-m3:latest': 'BAAI/bge-m3'}
+
 
 def read(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -23,7 +32,7 @@ def digest(value):
     return hashlib.sha256(value).hexdigest()
 
 def settings(variant='dense_small', path=None):
-    config = read(path or ROOT / 'config.json')
+    config = read(path) if path else CONFIG.copy()
     overrides = config.pop('variants')[variant]
     config.update(overrides)
     chunk_size, overlap = config['chunk_size'], config['overlap']
@@ -37,24 +46,21 @@ def settings(variant='dense_small', path=None):
         raise ValueError('vectorization: dense')
     return config
 
-# Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
-EMBEDDING_TOKENIZERS = {'bge-m3': 'BAAI/bge-m3', 'bge-m3:567m': 'BAAI/bge-m3',
-                        'bge-m3:latest': 'BAAI/bge-m3'}
-
 @lru_cache(maxsize=None)
 def _load_tokenizer(name):
     return AutoTokenizer.from_pretrained(name)
 
-def get_tokenizer(config):
-    expected = EMBEDDING_TOKENIZERS.get(config['embedding_model'])
+def get_tokenizer(model=EMBEDDING_MODEL):
+    expected = EMBEDDING_TOKENIZERS.get(model)
     if expected is None:
-        raise ValueError('Неизвестный токенизатор для модели ' + config['embedding_model'])
+        raise ValueError('Неизвестный токенизатор для модели ' + model)
     return _load_tokenizer(expected)
 
 class API:
-    def __init__(self, config):
-        self.urls = {name: config[name + '_url'].rstrip('/') for name in ('ollama', 'qdrant')}
-        self.embedding_model = config['embedding_model']
+    def __init__(self, config=CONFIG):
+        self.urls = {'ollama': config.get('ollama_url', OLLAMA_URL).rstrip('/'),
+                     'qdrant': config.get('qdrant_url', QDRANT_URL).rstrip('/')}
+        self.embedding_model = config.get('embedding_model', EMBEDDING_MODEL)
         self.client = httpx.Client(timeout=300, trust_env=False)
 
     def close(self):

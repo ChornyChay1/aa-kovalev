@@ -2,16 +2,20 @@
 from pathlib import Path
 from time import perf_counter
 import re
-from common import API, read
+from common import CONFIG, API, read
+
+LLM = CONFIG['llm']
+CONTEXT_CHUNKS = CONFIG['context_chunks']
+EF_SEARCH = CONFIG['hnsw']['ef_search']
 
 class RAG:
     def __init__(self, folder):
         self.folder = Path(folder)
         self.manifest = read(self.folder / 'manifest.json')
         self.config = self.manifest['config']
-        self.context_chunks = self.config['context_chunks']
-        self.llm = self.config['llm']
-        self.ef_search = self.config['hnsw']['ef_search']
+        self.context_chunks = self.config.get('context_chunks', CONTEXT_CHUNKS)
+        self.llm = self.config.get('llm', LLM)
+        self.ef_search = self.config['hnsw'].get('ef_search', EF_SEARCH)
         self.api = API(self.config)
 
     def close(self):

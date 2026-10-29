@@ -7,11 +7,13 @@ from pathlib import Path
 import httpx
 import pymupdf
 import pymupdf4llm
-from common import ARTIFACTS, settings, digest, read, write
+from common import CONFIG, ARTIFACTS, settings, digest, read, write
 
+
+SOURCE = CONFIG['source']
 
 def prepare(config, pdf=None, rebuild=False):
-    source = config['source']
+    source = config.get('source', SOURCE)
     folder = ARTIFACTS / 'corpus' / source['sha256'][:12]
     manifest_path = folder / 'manifest.json'
     parser_hash = digest(Path(__file__).read_bytes())

@@ -7,11 +7,14 @@ from pathlib import Path
 from statistics import mean
 from time import perf_counter
 from uuid import uuid4
-from common import ROOT, ARTIFACTS, read, write, settings
+from common import CONFIG, ROOT, ARTIFACTS, read, write, settings
 from build_index import build
 from load_to_vector_store import load
 from rag import RAG
 
+
+VARIANTS = list(CONFIG['variants'])
+K_VALUES = (5, 10)
 
 def metrics(pages, relevant, k):
     found = [page in relevant for page in pages[:k]]
@@ -24,7 +27,7 @@ def evaluate(args):
     output = ROOT / 'results' / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '_' + uuid4().hex[:6])
     output.mkdir(parents=True)
     summaries, reviews = [], []
-    meta = {'status': 'running', 'variants': args.variants, 'k': [5, 10], 'questions': questions,
+    meta = {'status': 'running', 'variants': args.variants, 'k': K_VALUES, 'questions': questions,
             'qa_enabled': not args.retrieval_only, 'configs': {}}
     write(output / 'metadata.json', meta)
     try:
@@ -39,12 +42,12 @@ def evaluate(args):
                 records = []
                 try:
                     # Retrieve all questions before QA to avoid repeated model swapping.
-                    retrieved = [(q, *rag.retrieve(q['question'], 10)) for q in questions]
+                    retrieved = [(q, *rag.retrieve(q['question'], max(K_VALUES))) for q in questions]
                     for q, hits, elapsed in retrieved:
                         row = {'variant': variant, 'id': q['id'], 'question': q['question'],
                             'expected_answer': q['answer'], 'relevant_pages': q['pages'],
                             'hits': hits, 'retrieval_s': elapsed,
-                            'metrics': {str(k): metrics([h['page'] for h in hits], set(q['pages']), k) for k in [5, 10]}}
+                            'metrics': {str(k): metrics([h['page'] for h in hits], set(q['pages']), k) for k in K_VALUES}}
                         if not args.retrieval_only:
                             row.update(rag.answer(q['question'], hits))
                             reviews.append({'variant': variant, 'id': q['id'], 'question': q['question'],
@@ -62,7 +65,7 @@ def evaluate(args):
                     'qa_s_mean': (mean(r['generation_s'] for r in records if 'generation_s' in r)
                                   if any('generation_s' in r for r in records) else None),
                     'run_s': perf_counter() - started}
-                for k in [5, 10]:
+                for k in K_VALUES:
                     for metric in ['recall', 'precision', 'mrr']:
                         summary[f'{metric}@{k}'] = mean(r['metrics'][str(k)][metric] for r in records)
                 summaries.append(summary)
@@ -84,7 +87,7 @@ def evaluate(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path)
-    parser.add_argument('--variants', nargs='+', default=['dense_small', 'dense_large'])
+    parser.add_argument('--variants', nargs='+', default=VARIANTS)
     parser.add_argument('--retrieval-only', action='store_true')
     parser.add_argument('--rebuild', action='store_true')
     parser.add_argument('--reset', action='store_true')
