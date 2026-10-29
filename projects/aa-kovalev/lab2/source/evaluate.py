@@ -60,7 +60,7 @@ def evaluate(args):
                     rag.close()
                 summary = {'variant': variant, 'index': str(folder.relative_to(ROOT)), 'chunks': manifest['chunks'],
                     'index_build_s': manifest['build_s'], 'load_s': read(folder / 'load.json')['load_s'],
-                    'index_bytes': (folder / 'points.json').stat().st_size,
+                    'points_json_bytes': (folder / 'points.json').stat().st_size,
                     'retrieval_s_mean': mean(r['retrieval_s'] for r in records),
                     'qa_s_mean': (mean(r['generation_s'] for r in records if 'generation_s' in r)
                                   if any('generation_s' in r for r in records) else None),
