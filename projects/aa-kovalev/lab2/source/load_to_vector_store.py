@@ -31,6 +31,8 @@ def load(folder, reset=False):
                 'hnsw_config': {'m': m, 'ef_construct': ef_construct,
                                 'full_scan_threshold': 10},
                 'optimizers_config': {'indexing_threshold': 1}}
+            if not dense:
+                body['sparse_vectors'] = {'sparse': {'modifier': 'idf'}}
             api.request('qdrant', 'PUT', path, body)
         for offset in range(0, len(points), 64):
             api.request('qdrant', 'PUT', path + '/points?wait=true', {'points': points[offset:offset+64]})

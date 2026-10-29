@@ -12,6 +12,8 @@ CONFIG = json.loads((ROOT / 'config.json').read_text(encoding='utf-8'))
 OLLAMA_URL = CONFIG['ollama_url']
 QDRANT_URL = CONFIG['qdrant_url']
 EMBEDDING_MODEL = CONFIG['embedding_model']
+BM25_MODEL = 'qdrant/bm25'
+BM25_OPTIONS = {'language': 'russian'}
 
 # Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
 EMBEDDING_TOKENIZERS = {'bge-m3': 'BAAI/bge-m3', 'bge-m3:567m': 'BAAI/bge-m3',
@@ -40,8 +42,8 @@ def settings(variant='dense_small', path=None):
         raise ValueError('include_headings: true или false')
     if not 100 <= chunk_size <= 1000 or not 0 <= overlap < chunk_size // 2:
         raise ValueError('chunk_size: 100–1000; overlap: от 0 до половины размера')
-    if config['vectorization'] not in ('dense',):
-        raise ValueError('vectorization: dense')
+    if config['vectorization'] not in ('dense', 'sparse'):
+        raise ValueError('vectorization: dense или sparse')
     return config
 
 @lru_cache(maxsize=None)
@@ -53,6 +55,9 @@ def get_tokenizer(model=EMBEDDING_MODEL):
     if expected is None:
         raise ValueError('Неизвестный токенизатор для модели ' + model)
     return _load_tokenizer(expected)
+
+def bm25(text):
+    return {'text': text, 'model': BM25_MODEL, 'options': BM25_OPTIONS}
 
 class API:
     def __init__(self, config=CONFIG):

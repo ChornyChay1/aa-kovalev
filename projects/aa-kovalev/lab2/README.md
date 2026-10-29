@@ -13,7 +13,8 @@
 - PyMuPDF4LLM — PDF → Markdown; `transformers.AutoTokenizer` (`BAAI/bge-m3`) — измерение размера чанков.
 - `langchain-text-splitters`: `MarkdownHeaderTextSplitter` и `RecursiveCharacterTextSplitter`.
 - Qdrant 1.16.3 в Docker; HTTPX — обращения к Qdrant и Ollama.
-- Dense-эмбеддинги: `bge-m3:567m` через Ollama `/api/embed`, без обрезания входа.
+- Dense: `bge-m3:567m` через Ollama `/api/embed`, без обрезания входа.
+- Sparse: BM25 в Qdrant (`qdrant/bm25`), с русским стеммингом и IDF.
 - Ответы: `gemma3:4b` из лабы 1 через `/v1/chat/completions`;
   `temperature=0.2`, `max_tokens=512`, три контекстных фрагмента.
 - FastAPI, Uvicorn, обычный HTML/JavaScript; интерфейс и API обслуживает один процесс.
@@ -56,11 +57,14 @@ PDF содержит 164 страницы. В корпус включены **с
 
 | Вариант | Разбиение | Размер, токены | Overlap | Поиск |
 | --- | --- | --- | --- | --- |
-| `dense_small` | Заголовки → Recursive | 384 | 48 | Dense |
-| `dense_large` | Заголовки → Recursive | 768 | 96 | Dense |
+| `dense_small` | Заголовки → Recursive | 384 | 48 | Dense (BGE-M3) |
+| `sparse_small` | Заголовки → Recursive | 384 | 48 | Sparse (BM25) |
+| `dense_large` | Заголовки → Recursive | 768 | 96 | Dense (BGE-M3) |
 
 Настройки в `config.json`: `chunk_size`, `overlap`, `include_headings`
-(`true`/`false`). Разделение всегда выполняется двумя этапами:
+(`true`/`false`), `embedding_model`, `vectorization` (`dense`/`sparse`).
+Для сравнения Dense и Sparse используйте `dense_small` и `sparse_small`:
+у них одинаковые чанки. Разделение всегда выполняется двумя этапами:
 `MarkdownHeaderTextSplitter` → `RecursiveCharacterTextSplitter`.
 
 `prepare.py` сохраняет единый `book.md` с маркерами страниц и `manifest.json`
@@ -77,11 +81,12 @@ PDF содержит 164 страницы. В корпус включены **с
 корпуса, сохраняются в `artifacts/indexes/<версия>/chunk_example.json`;
 путь выводится при построении индекса.
 
-Документы и вопросы кодируются одной `bge-m3:567m` через Ollama. Локальный Qdrant
-получает готовые dense-векторы; размерность коллекции берётся из эмбеддинга.
-Отдельной модели эмбеддингов в Qdrant в этой схеме нет.
+В Dense документы и вопросы кодируются `bge-m3:567m` через Ollama, а Qdrant
+хранит готовые векторы. В Sparse Qdrant сам вычисляет BM25-векторы по тексту
+с настройкой `language=russian` при загрузке и поиске; Ollama для этого не нужен.
+Для одинакового разбиения размер чанков в обоих режимах измеряется токенизатором BGE-M3.
 
-Qdrant: cosine для dense, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
+Qdrant: cosine для dense, IDF для sparse, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
 параметры также в конфигурации. Для малого корпуса снижен порог построения HNSW.
 ### Методика оценки
 
@@ -97,6 +102,7 @@ Qdrant: cosine для dense, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
 - MRR@k = 1 / позиция первой релевантной страницы; 0, если она не найдена.
 
 Метрики усредняются по 15 вопросам. Вопросы и страницы фиксированы для всех вариантов.
+`dense_small` и `sparse_small` сравнивают именно тип поиска при одинаковых чанках.
 Предварительно для интерфейса выбирается максимум MRR@10, затем Recall@5, затем
 минимальное время поиска. Это выбор по retrieval; окончательный вывод учитывает QA
 и затраты. Те же 15 вопросов используются для сравнения — независимого теста здесь нет.
@@ -143,7 +149,7 @@ Qdrant: cosine для dense, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
 3. Выполнить сравнение:
 
    ```powershell
-   uv run --locked python source/evaluate.py
+   uv run --locked python source/evaluate.py --variants dense_small sparse_small
    ```
 
    Команда сама строит и загружает индексы, считает retrieval-метрики и генерирует

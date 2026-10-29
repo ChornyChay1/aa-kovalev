@@ -1,4 +1,4 @@
-"""Пересобрать чанки и dense-векторы, сохранив версию конфигурации."""
+"""Пересобрать чанки и векторы, сохранив версию конфигурации."""
 import argparse
 from pathlib import Path
 import json
@@ -6,7 +6,7 @@ import re
 from time import perf_counter
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from common import CONFIG, EMBEDDING_MODEL, ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer
+from common import CONFIG, EMBEDDING_MODEL, ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer, bm25
 from prepare import prepare
 
 CHUNK_SIZE = CONFIG['chunk_size']
@@ -97,10 +97,9 @@ def build(config, rebuild=False):
         points = []
         for offset in range(0, len(chunks), 8):
             batch = chunks[offset:offset + 8]
-            dense = api.embed([c['text'] for c in batch])
+            dense = api.embed([c['text'] for c in batch]) if config['vectorization'] == 'dense' else None
             for i, chunk in enumerate(batch):
-                vector = {}
-                vector['dense'] = dense[i]
+                vector = {'dense': dense[i]} if dense is not None else {'sparse': bm25(chunk['text'])}
                 points.append({'id': chunk['id'], 'payload': chunk, 'vector': vector})
             print(f'Векторы: {min(offset + 8, len(chunks))}/{len(chunks)}', flush=True)
         write(folder / 'points.json', points)

@@ -2,7 +2,7 @@
 from pathlib import Path
 from time import perf_counter
 import re
-from common import CONFIG, API, read
+from common import CONFIG, API, read, bm25
 
 LLM = CONFIG['llm']
 CONTEXT_CHUNKS = CONFIG['context_chunks']
@@ -26,8 +26,12 @@ class RAG:
         # Page-level ranking: maximum chunk score, then deduplicate pages.
         # Request all points for this small corpus so k means k distinct pages.
         limit = self.manifest['chunks']
-        body = {'limit': limit, 'params': {'hnsw_ef': self.ef_search},
-            'using': 'dense', 'query': self.api.embed([question])[0], 'with_payload': True}
+        sparse = self.config['vectorization'] == 'sparse'
+        query = bm25(question) if sparse else self.api.embed([question])[0]
+        body = {'limit': limit, 'using': 'sparse' if sparse else 'dense',
+            'query': query, 'with_payload': True}
+        if not sparse:
+            body['params'] = {'hnsw_ef': self.ef_search}
         result = self.api.request('qdrant', 'POST', '/collections/' + self.manifest['collection'] + '/points/query', body)
         seen, hits = set(), []
         for point in result['result']['points']:
