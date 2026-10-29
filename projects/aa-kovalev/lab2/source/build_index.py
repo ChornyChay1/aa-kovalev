@@ -25,7 +25,7 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
         headers_to_split_on=headers, strip_headers=not include_headings)
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=overlap,
-        length_function=count_tokens, add_start_index=True)
+        length_function=count_tokens)
 
     page_number = manifest['selected_pages'][0]
     chunks = []
@@ -38,10 +38,12 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
             removed += len(marker.group())
         page_number = numbers[-1]
         text = PAGE_MARKER.sub('', section.page_content)
+        cursor = 0
         for chunk in text_splitter.split_documents([Document(page_content=text, metadata=section.metadata)]):
-            start = chunk.metadata.pop('start_index')
+            start = text.find(chunk.page_content, cursor)
             if start < 0:
-                raise ValueError('Не удалось определить позицию чанка')
+                raise ValueError('Не удалось найти чанк в исходном тексте')
+            cursor = start + 1
             start_page = numbers[bisect_right(positions, start) - 1]
             end_page = numbers[bisect_right(positions, start + len(chunk.page_content) - 1) - 1]
             tokens = count_tokens(chunk.page_content)
