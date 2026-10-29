@@ -1,4 +1,4 @@
-"""Общие настройки, REST-клиенты и готовый BM25 из FastEmbed."""
+"""Общие настройки, REST-клиенты."""
 from functools import lru_cache
 from transformers import AutoTokenizer
 from pathlib import Path
@@ -28,8 +28,8 @@ def settings(variant='dense_small', path=None):
     config.update(overrides)
     if not 100 <= config['chunk_size'] <= 1000 or not 0 <= config['overlap'] < config['chunk_size'] // 2:
         raise ValueError('chunk_size: 100–1000; overlap: от 0 до половины размера')
-    if config['vectorization'] not in ('dense', 'hybrid'):
-        raise ValueError('vectorization: dense или hybrid')
+    if config['vectorization'] not in ('dense',):
+        raise ValueError('vectorization: dense')
     return config
 
 # Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
@@ -75,14 +75,3 @@ class API:
         if len(vectors) != len(texts) or not vectors or not vectors[0]:
             raise ValueError('Получены неполные эмбеддинги')
         return vectors
-
-@lru_cache(maxsize=1)
-def get_bm25():
-    """FastEmbed BM25 для русского корпуса; IDF рассчитывается в Qdrant."""
-    from fastembed import SparseTextEmbedding
-    return SparseTextEmbedding(model_name='Qdrant/bm25', language='russian')
-
-
-def sparse_vector(embedding):
-    """Преобразовать SparseEmbedding из FastEmbed в JSON-вектор Qdrant."""
-    return {'indices': embedding.indices.tolist(), 'values': embedding.values.tolist()}

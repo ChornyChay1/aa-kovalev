@@ -29,11 +29,6 @@
     "dense_large": {
       "chunk_size": 512,
       "overlap": 64
-    },
-    "hybrid_large": {
-      "chunk_size": 512,
-      "overlap": 64,
-      "vectorization": "hybrid"
     }
   }
 }

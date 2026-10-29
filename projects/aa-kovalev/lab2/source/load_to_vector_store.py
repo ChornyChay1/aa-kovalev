@@ -26,17 +26,13 @@ def load(folder, reset=False):
                 'hnsw_config': {'m': config['hnsw']['m'], 'ef_construct': config['hnsw']['ef_construct'],
                                 'full_scan_threshold': 10},
                 'optimizers_config': {'indexing_threshold': 1}}
-            if config['vectorization'] == 'hybrid':
-                body['sparse_vectors'] = {'sparse': {'modifier': 'idf'}}
             api.request('qdrant', 'PUT', path, body)
         for offset in range(0, len(points), 64):
             api.request('qdrant', 'PUT', path + '/points?wait=true', {'points': points[offset:offset+64]})
         count = api.request('qdrant', 'POST', path + '/points/count', {'exact': True})['result']['count']
         if count != len(points):
             raise ValueError('Число точек не совпало; повторите с --reset')
-        info = api.request('qdrant', 'GET', path)['result']
-        write(folder / 'load.json', {'load_s': perf_counter() - started, 'points': count,
-            'collection_info': info, 'qdrant_version': api.request('qdrant', 'GET', '/')})
+        write(folder / 'load.json', {'load_s': perf_counter() - started, 'points': count})
         write(ARTIFACTS / 'active.json', {'index': str(folder.resolve().relative_to(ROOT))})
         return manifest
     finally:

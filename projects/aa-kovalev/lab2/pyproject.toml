@@ -2,10 +2,7 @@
 name = "aa-kovalev-lab2"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["httpx>=0.28,<0.29", "pymupdf4llm>=0.0.17,<1", "transformers>=4.51,<5", "sentencepiece>=0.2,<1", "langchain-text-splitters>=0.3,<1", "fastembed>=0.9,<1", "fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
-
-[dependency-groups]
-analysis = ["ipykernel>=6,<8"]
+dependencies = ["httpx>=0.28,<0.29", "pymupdf4llm>=0.0.17,<1", "transformers>=4.51,<5", "sentencepiece>=0.2,<1", "langchain-text-splitters>=0.3,<1", "fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
 
 [tool.uv]
 package = false

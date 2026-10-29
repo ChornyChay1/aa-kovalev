@@ -10,7 +10,7 @@ from uuid import uuid4
 from common import ROOT, ARTIFACTS, read, write, settings
 from build_index import build
 from load_to_vector_store import load
-from rag import RAG, is_repeat_limit_error
+from rag import RAG
 
 
 def metrics(pages, relevant, k):
@@ -46,20 +46,10 @@ def evaluate(args):
                             'hits': hits, 'retrieval_s': elapsed,
                             'metrics': {str(k): metrics([h['page'] for h in hits], set(q['pages']), k) for k in [5, 10]}}
                         if not args.retrieval_only:
-                            try:
-                                row.update(rag.answer(q['question'], hits))
-                            except Exception as error:
-                                if not is_repeat_limit_error(error):
-                                    raise
-                                # Keep retrieval metrics; never score failed generation as an answer.
-                                row.update(answer='', citations=[], generation_error=str(error),
-                                           generation_retried=True)
-                                print(f"{variant} {q['id']}: Ollama повторяет токены, "
-                                      'ответ не получен', flush=True)
+                            row.update(rag.answer(q['question'], hits))
                             reviews.append({'variant': variant, 'id': q['id'], 'question': q['question'],
                                 'expected_answer': q['answer'], 'answer': row['answer'],
-                                'answer_correct_0_or_1': '', 'citations_support_answer_0_or_1': '',
-                                'note': 'Ошибка Ollama (повтор токенов), не оценивать' if row.get('generation_error') else ''})
+                                'answer_correct_0_or_1': '', 'citations_support_answer_0_or_1': ''})
                         log.write(json.dumps(row, ensure_ascii=False) + '\n'); log.flush()
                         records.append(row)
                         print(variant, q['id'], f'{elapsed:.3f} с', flush=True)
@@ -71,7 +61,6 @@ def evaluate(args):
                     'retrieval_s_mean': mean(r['retrieval_s'] for r in records),
                     'qa_s_mean': (mean(r['generation_s'] for r in records if 'generation_s' in r)
                                   if any('generation_s' in r for r in records) else None),
-                    'generation_failures': sum('generation_error' in r for r in records),
                     'run_s': perf_counter() - started}
                 for k in [5, 10]:
                     for metric in ['recall', 'precision', 'mrr']:
@@ -95,7 +84,7 @@ def evaluate(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path)
-    parser.add_argument('--variants', nargs='+', default=['dense_small', 'dense_large', 'hybrid_large'])
+    parser.add_argument('--variants', nargs='+', default=['dense_small', 'dense_large'])
     parser.add_argument('--retrieval-only', action='store_true')
     parser.add_argument('--rebuild', action='store_true')
     parser.add_argument('--reset', action='store_true')

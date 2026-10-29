@@ -2,14 +2,7 @@
 from pathlib import Path
 from time import perf_counter
 import re
-import httpx
-from common import API, read, get_bm25, sparse_vector
-
-def is_repeat_limit_error(error):
-    return (isinstance(error, httpx.HTTPStatusError)
-            and error.response.status_code == 500
-            and 'token repeat limit reached' in error.response.text.lower())
-
+from common import API, read
 
 class RAG:
     def __init__(self, folder):
@@ -17,7 +10,6 @@ class RAG:
         self.manifest = read(self.folder / 'manifest.json')
         self.config = self.manifest['config']
         self.api = API(self.config)
-        self.bm25 = get_bm25() if self.config['vectorization'] == 'hybrid' else None
 
     def close(self):
         self.api.close()
@@ -31,14 +23,7 @@ class RAG:
         common = {'limit': limit, 'params': {'hnsw_ef': config['hnsw']['ef_search']}}
         searches = []
         searches.append({**common, 'using': 'dense', 'query': self.api.embed([question])[0]})
-        if self.bm25 is not None:
-            vector = sparse_vector(next(self.bm25.query_embed(question)))
-            if vector['indices']:
-                searches.append({**common, 'using': 'sparse', 'query': vector})
-        if not searches:
-            return [], perf_counter() - started
-        body = {**searches[0], 'with_payload': True} if len(searches) == 1 else {
-            'prefetch': searches, 'query': {'fusion': 'rrf'}, 'limit': limit, 'with_payload': True}
+        body = {**searches[0], 'with_payload': True}
         result = self.api.request('qdrant', 'POST', '/collections/' + self.manifest['collection'] + '/points/query', body)
         seen, hits = set(), []
         for point in result['result']['points']:
@@ -64,16 +49,7 @@ class RAG:
         request = {
             'model': self.config['llm'], 'messages': [{'role': 'user', 'content': prompt}],
             'temperature': 0.2, 'max_tokens': 512, 'stream': False}
-        retried = False
-        try:
-            response = self.api.request('ollama', 'POST', '/v1/chat/completions', request)
-        except httpx.HTTPStatusError as error:
-            if not is_repeat_limit_error(error):
-                raise
-            # Single retry with a shorter, less repetitive generation.
-            retried = True
-            request.update(temperature=0.5, max_tokens=320, frequency_penalty=0.3)
-            response = self.api.request('ollama', 'POST', '/v1/chat/completions', request)
+        response = self.api.request('ollama', 'POST', '/v1/chat/completions', request)
         answer = response['choices'][0]['message']['content']
         groups = re.findall(r'\[(\d+(?:\s*,\s*\d+)*)\]', answer)
         cited = sorted({int(i) for group in groups for i in group.split(',')})
@@ -83,4 +59,4 @@ class RAG:
         return {'answer': answer, 'citations': citations, 'contexts': contexts,
             'invalid_citations': [i for i in cited if not 1 <= i <= len(contexts)],
             'usage': response.get('usage', {}), 'finish_reason': response['choices'][0]['finish_reason'],
-            'generation_s': perf_counter() - started, 'generation_retried': retried}
+            'generation_s': perf_counter() - started}
