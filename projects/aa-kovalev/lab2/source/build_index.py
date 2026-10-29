@@ -81,8 +81,10 @@ def build(config, rebuild=False):
                 return folder
         started = perf_counter()
         chunks = split_markdown((corpus / 'book.md').read_text(encoding='utf-8'), manifest, **split_options)
-        write(folder / 'chunk_example.json', chunks[:5])
-        print('Пример 5 последовательных чанков:', folder / 'chunk_example.json', flush=True)
+        first_page = manifest['selected_pages'][0]
+        examples = [c for c in chunks if c['start_page'] <= first_page + 1]
+        write(folder / 'chunk_example.json', examples)
+        print('Пример чанков двух страниц:', folder / 'chunk_example.json', flush=True)
         points = []
         for offset in range(0, len(chunks), 8):
             batch = chunks[offset:offset + 8]
