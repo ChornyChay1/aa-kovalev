@@ -21,11 +21,7 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
     tokenizer = get_tokenizer(embedding_model)
     count_tokens = lambda text: len(tokenizer.encode(text, add_special_tokens=True))
     headers = [('#' * level, '#' * level) for level in range(1, 7)]
-    header_splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on=headers, strip_headers=not include_headings)
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=overlap,
-        length_function=count_tokens)
+    header_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers, strip_headers=True)
 
     page_number = manifest['selected_pages'][0]
     chunks = []
@@ -38,6 +34,14 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
             removed += len(marker.group())
         page_number = numbers[-1]
         text = PAGE_MARKER.sub('', section.page_content)
+        heading = '\n'.join(f'{level} {section.metadata[level]}'
+                            for level, _ in headers if level in section.metadata)
+        prefix = heading + '\n\n' if include_headings and heading else ''
+        budget = chunk_size - (count_tokens(prefix) if prefix else 0)
+        if budget <= overlap:
+            raise ValueError('Заголовки не помещаются в размер чанка')
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=budget, chunk_overlap=overlap, length_function=count_tokens)
         cursor = 0
         for chunk in text_splitter.split_documents([Document(page_content=text, metadata=section.metadata)]):
             start = text.find(chunk.page_content, cursor)
@@ -46,14 +50,15 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
             cursor = start + 1
             start_page = numbers[bisect_right(positions, start) - 1]
             end_page = numbers[bisect_right(positions, start + len(chunk.page_content) - 1) - 1]
-            tokens = count_tokens(chunk.page_content)
+            chunk_text = prefix + chunk.page_content
+            tokens = count_tokens(chunk_text)
             if tokens > chunk_size:
-                raise ValueError('Фрагмент превышает chunk_size')
+                raise ValueError('Фрагмент с заголовками превышает chunk_size')
             source = manifest['source']
             chunks.append({'id': len(chunks), 'source_id': 'byte_python_ru',
                 'title': source['title'], 'source_url': source['url'], 'source_date': source['date'],
                 'path': 'book.md', 'page': start_page, 'section': manifest['sections'][str(start_page)],
-                'text': chunk.page_content, 'tokens': tokens, 'headings': chunk.metadata,
+                'text': chunk_text, 'tokens': tokens, 'headings': chunk.metadata,
                 'start_page': start_page, 'end_page': end_page})
     return chunks
 
