@@ -56,8 +56,9 @@ def get_tokenizer(model=EMBEDDING_MODEL):
         raise ValueError('Неизвестный токенизатор для модели ' + model)
     return _load_tokenizer(expected)
 
-def bm25(text):
-    return {'text': text, 'model': BM25_MODEL, 'options': BM25_OPTIONS}
+def bm25(text, avg_len):
+    return {'text': text, 'model': BM25_MODEL,
+            'options': {**BM25_OPTIONS, 'avg_len': avg_len}}
 
 class API:
     def __init__(self, config=CONFIG):

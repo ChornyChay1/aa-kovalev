@@ -94,19 +94,22 @@ def build(config, rebuild=False):
         examples = [c for c in chunks if c['start_page'] <= first_page + 1]
         write(folder / 'chunk_example.json', examples)
         print('Пример чанков двух страниц:', folder / 'chunk_example.json', flush=True)
+        avg_len = (sum(len(c['text'].split()) for c in chunks) / len(chunks)
+                   if config['vectorization'] == 'sparse' else None)
         points = []
         for offset in range(0, len(chunks), 8):
             batch = chunks[offset:offset + 8]
             if config['vectorization'] == 'dense':
                 vectors = [{'dense': vector} for vector in api.embed([c['text'] for c in batch])]
             elif config['vectorization'] == 'sparse':
-                vectors = [{'sparse': bm25(chunk['text'])} for chunk in batch]
+                vectors = [{'sparse': bm25(chunk['text'], avg_len)} for chunk in batch]
             for chunk, vector in zip(batch, vectors):
                 points.append({'id': chunk['id'], 'payload': chunk, 'vector': vector})
             print(f'Векторы: {min(offset + 8, len(chunks))}/{len(chunks)}', flush=True)
         write(folder / 'points.json', points)
         write(folder / 'manifest.json', {**identity, 'version': version, 'collection': 'lab2_' + version,
-            'chunks': len(chunks), 'corpus_path': str(corpus.relative_to(ROOT)),
+            'chunks': len(chunks), 'bm25_avg_len': avg_len,
+            'corpus_path': str(corpus.relative_to(ROOT)),
             'build_s': perf_counter() - started, 'points_sha256': digest((folder / 'points.json').read_bytes())})
         return folder
     finally:

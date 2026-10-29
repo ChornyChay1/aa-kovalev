@@ -27,7 +27,7 @@ class RAG:
         # Request all points for this small corpus so k means k distinct pages.
         limit = self.manifest['chunks']
         sparse = self.config['vectorization'] == 'sparse'
-        query = bm25(question) if sparse else self.api.embed([question])[0]
+        query = bm25(question, self.manifest['bm25_avg_len']) if sparse else self.api.embed([question])[0]
         body = {'limit': limit, 'using': 'sparse' if sparse else 'dense',
             'query': query, 'with_payload': True}
         if not sparse:
