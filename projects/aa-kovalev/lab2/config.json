@@ -1,4 +1,26 @@
 {
+  "splitter": "markdown",
+  "chunk_size": 384,
+  "overlap": 48,
+  "include_headings": true,
+  "embedding_model": "bge-m3:567m",
+  "vectorization": "dense",
+  "llm": "gemma3:4b",
+  "context_chunks": 3,
+  "hnsw": {
+    "m": 16,
+    "ef_construct": 100,
+    "ef_search": 128
+  },
+  "variants": {
+    "dense_small": {},
+    "dense_large": {
+      "chunk_size": 768,
+      "overlap": 96
+    }
+  },
+  "ollama_url": "http://localhost:11434",
+  "qdrant_url": "http://localhost:6333",
   "source": {
     "title": "Укус Питона — A Byte of Python, версия 2.02",
     "author": "Swaroop C H",
@@ -10,27 +32,5 @@
     "date": "2020-04-26",
     "first_page": 42,
     "last_page": 148
-  },
-  "ollama_url": "http://localhost:11434",
-  "qdrant_url": "http://localhost:6333",
-  "llm": "gemma3:4b",
-  "embedding_model": "bge-m3:567m",
-  "splitter": "markdown",
-  "include_headings": true,
-  "chunk_size": 384,
-  "overlap": 48,
-  "vectorization": "dense",
-  "hnsw": {
-    "m": 16,
-    "ef_construct": 100,
-    "ef_search": 128
-  },
-  "context_chunks": 3,
-  "variants": {
-    "dense_small": {},
-    "dense_large": {
-      "chunk_size": 768,
-      "overlap": 96
-    }
   }
 }
