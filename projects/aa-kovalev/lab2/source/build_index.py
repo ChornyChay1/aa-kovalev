@@ -3,7 +3,6 @@ import argparse
 from pathlib import Path
 import json
 import re
-from bisect import bisect_right
 from time import perf_counter
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
@@ -16,6 +15,22 @@ INCLUDE_HEADINGS = CONFIG['include_headings']
 PAGE_MARKER = re.compile(r'(?m)^<!-- PAGE:(\d+) -->[ \t]*$')
 
 
+def remove_page_markers(text, first_page):
+    boundaries = [(0, first_page)]
+    parts, last, length = [], 0, 0
+    for marker in PAGE_MARKER.finditer(text):
+        part = text[last:marker.start()]
+        parts.append(part)
+        length += len(part)
+        boundaries.append((length, int(marker.group(1))))
+        last = marker.end()
+    return ''.join(parts) + text[last:], boundaries
+
+
+def page_at(boundaries, position):
+    return next(page for offset, page in reversed(boundaries) if offset <= position)
+
+
 def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
                    include_headings=INCLUDE_HEADINGS, embedding_model=EMBEDDING_MODEL):
     tokenizer = get_tokenizer(embedding_model)
@@ -26,14 +41,8 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
     page_number = manifest['selected_pages'][0]
     chunks = []
     for section in header_splitter.split_text(markdown):
-        positions, numbers = [0], [page_number]
-        removed = 0
-        for marker in PAGE_MARKER.finditer(section.page_content):
-            positions.append(marker.start() - removed)
-            numbers.append(int(marker.group(1)))
-            removed += len(marker.group())
-        page_number = numbers[-1]
-        text = PAGE_MARKER.sub('', section.page_content)
+        text, boundaries = remove_page_markers(section.page_content, page_number)
+        page_number = boundaries[-1][1]
         heading = '\n'.join(f'{level} {section.metadata[level]}'
                             for level, _ in headers if level in section.metadata)
         prefix = heading + '\n\n' if include_headings and heading else ''
@@ -48,8 +57,8 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
             if start < 0:
                 raise ValueError('Не удалось найти чанк в исходном тексте')
             cursor = start + 1
-            start_page = numbers[bisect_right(positions, start) - 1]
-            end_page = numbers[bisect_right(positions, start + len(chunk.page_content) - 1) - 1]
+            start_page = page_at(boundaries, start)
+            end_page = page_at(boundaries, start + len(chunk.page_content) - 1)
             chunk_text = prefix + chunk.page_content
             tokens = count_tokens(chunk_text)
             if tokens > chunk_size:
