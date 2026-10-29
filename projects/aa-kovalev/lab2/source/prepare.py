@@ -48,7 +48,6 @@ def prepare(config, pdf=None, rebuild=False):
                 sections = sections[:level-1] + [title]
         text = page['text'].replace('\r\n', '\n')
         text = re.sub(r'(?m)^A Byte of Python \(Russian\), Версия 2\.02\s*$', '', text)
-        text = re.sub(r'(?m)^#{4,6} ', '### ', text)
         text = text.replace('\ufffd', '').replace('\uffff', '')  # PDF continuation marker artifacts
         text = re.sub(r'\n{3,}', '\n\n', text).strip() + '\n'
         record = {'source_id': 'byte_python_ru', 'title': source['title'],

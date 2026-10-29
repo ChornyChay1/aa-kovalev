@@ -9,6 +9,9 @@ class RAG:
         self.folder = Path(folder)
         self.manifest = read(self.folder / 'manifest.json')
         self.config = self.manifest['config']
+        self.context_chunks = self.config['context_chunks']
+        self.llm = self.config['llm']
+        self.ef_search = self.config['hnsw']['ef_search']
         self.api = API(self.config)
 
     def close(self):
@@ -16,14 +19,11 @@ class RAG:
 
     def retrieve(self, question, k=10):
         started = perf_counter()
-        config = self.config
         # Page-level ranking: maximum chunk score, then deduplicate pages.
         # Request all points for this small corpus so k means k distinct pages.
         limit = self.manifest['chunks']
-        common = {'limit': limit, 'params': {'hnsw_ef': config['hnsw']['ef_search']}}
-        searches = []
-        searches.append({**common, 'using': 'dense', 'query': self.api.embed([question])[0]})
-        body = {**searches[0], 'with_payload': True}
+        body = {'limit': limit, 'params': {'hnsw_ef': self.ef_search},
+            'using': 'dense', 'query': self.api.embed([question])[0], 'with_payload': True}
         result = self.api.request('qdrant', 'POST', '/collections/' + self.manifest['collection'] + '/points/query', body)
         seen, hits = set(), []
         for point in result['result']['points']:
@@ -36,7 +36,7 @@ class RAG:
         return hits, perf_counter() - started
 
     def answer(self, question, hits):
-        contexts = hits[:self.config['context_chunks']]
+        contexts = hits[:self.context_chunks]
         if not contexts:
             return {'answer': 'В документации не найден ответ.', 'citations': [], 'usage': {}, 'generation_s': 0}
         text = '\n\n'.join(f'[{i}] {c["title"]}; страница PDF {c["page"]}; {c["section"]}\n{c["text"]}'
@@ -47,7 +47,7 @@ class RAG:
             'Не выдумывай ссылки и факты.\n\nВОПРОС: ' + question + '\n\nФРАГМЕНТЫ:\n' + text)
         started = perf_counter()
         request = {
-            'model': self.config['llm'], 'messages': [{'role': 'user', 'content': prompt}],
+            'model': self.llm, 'messages': [{'role': 'user', 'content': prompt}],
             'temperature': 0.2, 'max_tokens': 512, 'stream': False}
         response = self.api.request('ollama', 'POST', '/v1/chat/completions', request)
         answer = response['choices'][0]['message']['content']

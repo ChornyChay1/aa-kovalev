@@ -9,6 +9,7 @@ def load(folder, reset=False):
     folder = Path(folder)
     manifest = read(folder / 'manifest.json')
     config = manifest['config']
+    m, ef_construct = config['hnsw']['m'], config['hnsw']['ef_construct']
     if digest((folder / 'points.json').read_bytes()) != manifest['points_sha256']:
         raise ValueError('Файл векторов изменён; пересоберите индекс')
     points = read(folder / 'points.json')
@@ -23,7 +24,7 @@ def load(folder, reset=False):
         if not exists:
             dense = points[0]['vector'].get('dense')
             body = {'vectors': {'dense': {'size': len(dense), 'distance': 'Cosine'}} if dense else {},
-                'hnsw_config': {'m': config['hnsw']['m'], 'ef_construct': config['hnsw']['ef_construct'],
+                'hnsw_config': {'m': m, 'ef_construct': ef_construct,
                                 'full_scan_threshold': 10},
                 'optimizers_config': {'indexing_threshold': 1}}
             api.request('qdrant', 'PUT', path, body)

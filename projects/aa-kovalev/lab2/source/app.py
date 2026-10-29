@@ -35,7 +35,7 @@ def ask(body: Question):
         raise HTTPException(400, 'Введите вопрос')
     with app.state.lock:
         try:
-            hits, elapsed = app.state.rag.retrieve(body.question, app.state.rag.config['context_chunks'])
+            hits, elapsed = app.state.rag.retrieve(body.question, app.state.rag.context_chunks)
             return {**app.state.rag.answer(body.question, hits), 'retrieval_s': elapsed}
         except Exception as error:
             raise HTTPException(502, 'Ошибка Qdrant/Ollama: ' + str(error)) from error

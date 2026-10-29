@@ -26,7 +26,12 @@ def settings(variant='dense_small', path=None):
     config = read(path or ROOT / 'config.json')
     overrides = config.pop('variants')[variant]
     config.update(overrides)
-    if not 100 <= config['chunk_size'] <= 1000 or not 0 <= config['overlap'] < config['chunk_size'] // 2:
+    chunk_size, overlap = config['chunk_size'], config['overlap']
+    if config['splitter'] not in ('markdown', 'recursive'):
+        raise ValueError('splitter: markdown или recursive')
+    if not isinstance(config['include_headings'], bool):
+        raise ValueError('include_headings: true или false')
+    if not 100 <= chunk_size <= 1000 or not 0 <= overlap < chunk_size // 2:
         raise ValueError('chunk_size: 100–1000; overlap: от 0 до половины размера')
     if config['vectorization'] not in ('dense',):
         raise ValueError('vectorization: dense')
@@ -48,14 +53,15 @@ def get_tokenizer(config):
 
 class API:
     def __init__(self, config):
-        self.config = config
+        self.urls = {name: config[name + '_url'].rstrip('/') for name in ('ollama', 'qdrant')}
+        self.embedding_model = config['embedding_model']
         self.client = httpx.Client(timeout=300, trust_env=False)
 
     def close(self):
         self.client.close()
 
     def request(self, service, method, path, body=None):
-        url = self.config[service + '_url'].rstrip('/') + path
+        url = self.urls[service] + path
         response = self.client.request(method, url, json=body)
         try:
             response.raise_for_status()
@@ -70,7 +76,7 @@ class API:
 
     def embed(self, texts):
         response = self.request('ollama', 'POST', '/api/embed', {
-            'model': self.config['embedding_model'], 'input': texts, 'truncate': False})
+            'model': self.embedding_model, 'input': texts, 'truncate': False})
         vectors = response['embeddings']
         if len(vectors) != len(texts) or not vectors or not vectors[0]:
             raise ValueError('Получены неполные эмбеддинги')

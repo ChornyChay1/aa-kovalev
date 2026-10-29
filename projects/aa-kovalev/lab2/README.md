@@ -11,7 +11,7 @@
 
 - Python 3.11, uv; версии зависимостей закреплены в `uv.lock`.
 - PyMuPDF4LLM — PDF → Markdown; `transformers.AutoTokenizer` (`BAAI/bge-m3`) — измерение размера чанков.
-- `langchain-text-splitters`: готовый рекурсивный `MarkdownTextSplitter`.
+- `langchain-text-splitters`: `MarkdownHeaderTextSplitter` для заголовков и пакетный разделитель для длинных разделов.
 - Qdrant 1.16.3 в Docker; HTTPX — обращения к Qdrant и Ollama.
 - Dense-эмбеддинги: `bge-m3:567m` через Ollama `/api/embed`, без обрезания входа.
 - Ответы: `gemma3:4b` из лабы 1 через `/v1/chat/completions`;
@@ -56,16 +56,28 @@ PDF содержит 164 страницы. В корпус включены **с
 
 | Вариант | Разбиение | Размер, токены | Overlap | Поиск |
 | --- | --- | --- | --- | --- |
-| `dense_small` | MarkdownTextSplitter | 256 | 32 | Dense |
-| `dense_large` | MarkdownTextSplitter | 512 | 64 | Dense |
+| `dense_small` | MarkdownTextSplitter | 384 | 48 | Dense |
+| `dense_large` | MarkdownTextSplitter | 768 | 96 | Dense |
 
-Размер измеряется токенизатором `BAAI/bge-m3` — тем же словарём модели BGE-M3,
-которая строит эмбеддинги документов и вопросов в Ollama. Учитываются добавленный
-заголовок и специальные токены. `tiktoken` больше не используется.
-`MarkdownTextSplitter` рекурсивно делит по Markdown-разделителям, абзацам, строкам,
-словам и при необходимости символам. Overlap — верхняя граница; фактическое перекрытие
-зависит от границ разбиения. Чанки не пересекают страницы.
-Токенизатор Gemma для генерации ответа остаётся внутренним токенизатором Gemma.
+Настройки в `config.json`: `splitter` (`markdown` или `recursive`), `chunk_size`,
+`overlap`, `include_headings` (`true`/`false`). Для длинных разделов используются
+`MarkdownTextSplitter` или `RecursiveCharacterTextSplitter` соответственно.
+
+`MarkdownHeaderTextSplitter(headers_to_split_on=..., strip_headers=True)` выделяет
+заголовки `#`–`######` в метаданные `headings`. При `include_headings=true` вся
+иерархия раздела добавляется в начало каждого его чанка, включая продолжения.
+При `false` заголовки остаются только в метаданных. Для страницы без Markdown-заголовков
+используется её `section` из оглавления. Чанки не пересекают страницы.
+
+Размер включает заголовки и специальные токены `BAAI/bge-m3`. Overlap — верхняя
+граница перекрытия внутри раздела. Пример полного чанка с текстом, числом токенов
+и заголовками сохраняется в `artifacts/indexes/<версия>/chunk_example.json`;
+путь выводится при построении индекса.
+
+Документы и вопросы кодируются одной `bge-m3:567m` через Ollama. Локальный Qdrant
+получает готовые dense-векторы; размерность коллекции берётся из эмбеддинга.
+Отдельной модели эмбеддингов в Qdrant в этой схеме нет.
+
 Qdrant: cosine для dense, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
 параметры также в конфигурации. Для малого корпуса снижен порог построения HNSW.
 ### Методика оценки
@@ -123,7 +135,7 @@ Qdrant: cosine для dense, HNSW `m=16`, `ef_construct=100`, `ef_search=128`;
    передать `--pdf C:\путь\AByteofPythonRussian-2.02.pdf`. Контрольная сумма проверяется
    и при ручной загрузке. Markdown лежит в `artifacts/corpus/<hash>/pages/`.
 
-3. Выполнить:
+3. Выполнить сравнение:
 
    ```powershell
    uv run --locked python source/evaluate.py
