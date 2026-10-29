@@ -19,6 +19,11 @@
     "dense_large": {
       "chunk_size": 768,
       "overlap": 96
+    },
+    "sparse_large": {
+      "chunk_size": 768,
+      "overlap": 96,
+      "vectorization": "sparse"
     }
   },
   "ollama_url": "http://localhost:11434",

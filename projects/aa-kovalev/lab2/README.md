@@ -45,7 +45,7 @@ PDF содержит 164 страницы. В корпус включены **с
 | --- | --- |
 | 1. Корпус и вопросы | `config.json`, `questions.json`: 15 вопросов, эталонные ответы и релевантные страницы |
 | 2. Markdown | `source/prepare.py`: проверка PDF, единый `book.md` с маркерами страниц и `manifest.json` с метаданными |
-| 3. Чанки и векторы | `source/build_index.py`: разбиение, dense-векторы, версия артефактов |
+| 3. Чанки и векторы | `source/build_index.py`: разбиение, Dense/BM25-векторы, версия артефактов |
 | 4. Хранилище | `source/load_to_vector_store.py`, `compose.yaml`: коллекции Qdrant, повторная загрузка и `--reset` |
 | 5. Оценка | `source/evaluate.py`: сравнение конфигураций, сохранение ответов и проверка QA |
 | 6. Общение | `source/rag.py`, `source/app.py`, `source/index.html`: вопрос → поиск → контекст → LLM → цитаты |
@@ -60,11 +60,13 @@ PDF содержит 164 страницы. В корпус включены **с
 | `dense_small` | Заголовки → Recursive | 384 | 48 | Dense (BGE-M3) |
 | `sparse_small` | Заголовки → Recursive | 384 | 48 | Sparse (BM25) |
 | `dense_large` | Заголовки → Recursive | 768 | 96 | Dense (BGE-M3) |
+| `sparse_large` | Заголовки → Recursive | 768 | 96 | Sparse (BM25) |
 
 Настройки в `config.json`: `chunk_size`, `overlap`, `include_headings`
 (`true`/`false`), `embedding_model`, `vectorization` (`dense`/`sparse`).
-Для сравнения Dense и Sparse используйте `dense_small` и `sparse_small`:
-у них одинаковые чанки. Разделение всегда выполняется двумя этапами:
+Варианты образуют сравнение 2×2: Dense/Sparse и 384/768 токенов.
+В каждой паре `dense_*`/`sparse_*` параметры разбиения совпадают.
+Разделение всегда выполняется двумя этапами:
 `MarkdownHeaderTextSplitter` → `RecursiveCharacterTextSplitter`.
 
 `prepare.py` сохраняет единый `book.md` с маркерами страниц и `manifest.json`
@@ -102,7 +104,8 @@ Qdrant: cosine для dense, IDF для sparse, HNSW `m=16`, `ef_construct=100`,
 - MRR@k = 1 / позиция первой релевантной страницы; 0, если она не найдена.
 
 Метрики усредняются по 15 вопросам. Вопросы и страницы фиксированы для всех вариантов.
-`dense_small` и `sparse_small` сравнивают именно тип поиска при одинаковых чанках.
+На каждом размере чанков Dense и Sparse сравниваются при одинаковом разбиении;
+внутри одного метода сравниваются два размера чанка.
 Предварительно для интерфейса выбирается максимум MRR@10, затем Recall@5, затем
 минимальное время поиска. Это выбор по retrieval; окончательный вывод учитывает QA
 и затраты. Те же 15 вопросов используются для сравнения — независимого теста здесь нет.
@@ -149,12 +152,13 @@ Qdrant: cosine для dense, IDF для sparse, HNSW `m=16`, `ef_construct=100`,
 3. Выполнить сравнение:
 
    ```powershell
-   uv run --locked python source/evaluate.py --variants dense_small sparse_small
+   uv run --locked python source/evaluate.py
    ```
 
    Команда сама строит и загружает индексы, считает retrieval-метрики и генерирует
    ответы. Для проверки только поиска: `--retrieval-only`. Для принудительной
    пересборки и очистки соответствующих коллекций: `--rebuild --reset`.
+   Полный запуск выполняет 4 варианта × 15 вопросов, включая генерацию ответов LLM.
    Повторный запуск создаёт новую папку результатов; неизменённые эмбеддинги переиспользуются.
 
 5. Запустить интерфейс:
@@ -168,8 +172,11 @@ Qdrant: cosine для dense, IDF для sparse, HNSW `m=16`, `ef_construct=100`,
    индекс из `artifacts/active.json`; после смены индекса перезапустить сервис.
    Через `load_to_vector_store.py` можно выбрать другую готовую коллекцию.
 
-6. Для анализа передать из новой папки `results/`: `metadata.json`, `runs.jsonl`,
-   `summary.csv`, `qa_review.csv`. Реальные метрики и выводы затем войдут в этот README.
+6. Для ревью отправить ZIP с **четырьмя файлами** из последней папки `results/<запуск>/`:
+   `summary.csv` (сводные метрики), `runs.jsonl` (поиск и ответы по вопросам),
+   `metadata.json` (настройки и статус), `qa_review.csv` (ответы LLM для ручной проверки).
+   Файлы из `artifacts/indexes/`, PDF и эмбеддинги отправлять не нужно.
+   Реальные метрики и выводы после проверки войдут в этот README.
 
 Остановка Qdrant без удаления индексов: `docker compose down`.
 
