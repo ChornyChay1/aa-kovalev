@@ -81,8 +81,8 @@ def build(config, rebuild=False):
                 return folder
         started = perf_counter()
         chunks = split_markdown((corpus / 'book.md').read_text(encoding='utf-8'), manifest, **split_options)
-        write(folder / 'chunk_example.json', chunks[0])
-        print('Пример чанка:', folder / 'chunk_example.json', flush=True)
+        write(folder / 'chunk_example.json', chunks[:5])
+        print('Пример 5 последовательных чанков:', folder / 'chunk_example.json', flush=True)
         points = []
         for offset in range(0, len(chunks), 8):
             batch = chunks[offset:offset + 8]
