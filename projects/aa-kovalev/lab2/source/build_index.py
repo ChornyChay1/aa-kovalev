@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 import json
 import re
+from bisect import bisect_right
 from time import perf_counter
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
@@ -12,6 +13,7 @@ from prepare import prepare
 CHUNK_SIZE = CONFIG['chunk_size']
 OVERLAP = CONFIG['overlap']
 INCLUDE_HEADINGS = CONFIG['include_headings']
+PAGE_MARKER = re.compile(r'(?m)^<!-- PAGE:(\d+) -->[ \t]*$')
 
 
 def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
@@ -22,28 +24,35 @@ def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
     header_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=headers, strip_headers=not include_headings)
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=overlap, length_function=count_tokens)
+        chunk_size=chunk_size, chunk_overlap=overlap,
+        length_function=count_tokens, add_start_index=True)
 
     # Split headings across the whole book, retaining their hierarchy between pages.
     markdown = '\n\n'.join(f'<!-- PAGE:{p["page"]} -->\n\n{p["text"]}' for p in pages)
     page_by_number = {p['page']: p for p in pages}
-    page = pages[0]
+    page_number = pages[0]['page']
     chunks = []
     for section in header_splitter.split_text(markdown):
-        for i, fragment in enumerate(re.split(r'(?m)^<!-- PAGE:(\d+) -->[ \t]*$', section.page_content)):
-            if i % 2:
-                page = page_by_number[int(fragment)]
-                continue
-            if not fragment.strip():
-                continue
-            document = Document(page_content=fragment.strip(), metadata=section.metadata)
-            for chunk in text_splitter.split_documents([document]):
-                text = chunk.page_content
-                tokens = count_tokens(text)
-                if tokens > chunk_size:
-                    raise ValueError('Фрагмент превышает chunk_size')
-                chunks.append({**{k: v for k, v in page.items() if k != 'text'},
-                    'id': len(chunks), 'text': text, 'tokens': tokens, 'headings': chunk.metadata})
+        positions, numbers = [0], [page_number]
+        removed = 0
+        for marker in PAGE_MARKER.finditer(section.page_content):
+            positions.append(marker.start() - removed)
+            numbers.append(int(marker.group(1)))
+            removed += len(marker.group())
+        page_number = numbers[-1]
+        text = PAGE_MARKER.sub('', section.page_content)
+        for chunk in text_splitter.split_documents([Document(page_content=text, metadata=section.metadata)]):
+            start = chunk.metadata.pop('start_index')
+            if start < 0:
+                raise ValueError('Не удалось определить позицию чанка')
+            start_page = numbers[bisect_right(positions, start) - 1]
+            end_page = numbers[bisect_right(positions, start + len(chunk.page_content) - 1) - 1]
+            tokens = count_tokens(chunk.page_content)
+            if tokens > chunk_size:
+                raise ValueError('Фрагмент превышает chunk_size')
+            chunks.append({**{k: v for k, v in page_by_number[start_page].items() if k != 'text'},
+                'id': len(chunks), 'text': chunk.page_content, 'tokens': tokens,
+                'headings': chunk.metadata, 'start_page': start_page, 'end_page': end_page})
     return chunks
 
 def build(config, rebuild=False):
