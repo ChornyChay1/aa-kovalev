@@ -19,29 +19,23 @@ def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
     tokenizer = get_tokenizer(embedding_model)
     count_tokens = lambda text: len(tokenizer.encode(text, add_special_tokens=True))
     headers = [('#' * level, '#' * level) for level in range(1, 7)]
-    header_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers, strip_headers=True)
+    header_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=headers, strip_headers=not include_headings)
     splitter_class = {'markdown': MarkdownTextSplitter, 'recursive': RecursiveCharacterTextSplitter}[splitter]
+    text_splitter = splitter_class(
+        chunk_size=chunk_size, chunk_overlap=overlap, length_function=count_tokens)
+
     chunks = []
     for page in pages:
-        for section in header_splitter.split_text(page['text']):
-            headings = section.metadata
-            heading_text = '\n'.join(f'{mark} {headings[mark]}' for mark, _ in headers if mark in headings)
-            prefix = (heading_text or page['section']) + '\n\n' if include_headings else ''
-            budget = chunk_size - count_tokens(prefix)
-            if budget <= overlap:
-                raise ValueError('Заголовки слишком длинные для chunk_size и overlap')
-            text_splitter = splitter_class(
-                chunk_size=budget, chunk_overlap=overlap,
-                length_function=count_tokens, is_separator_regex=True)
-            for body in text_splitter.split_text(section.page_content):
-                text = prefix + body
-                tokens = count_tokens(text)
-                if tokens > chunk_size:
-                    raise ValueError('Фрагмент превышает chunk_size с учётом заголовков')
-                chunks.append({**{k: v for k, v in page.items() if k != 'text'},
-                    'id': len(chunks), 'text': text, 'tokens': tokens, 'headings': headings})
+        sections = header_splitter.split_text(page['text'])
+        for section in text_splitter.split_documents(sections):
+            text = section.page_content
+            tokens = count_tokens(text)
+            if tokens > chunk_size:
+                raise ValueError('Фрагмент превышает chunk_size')
+            chunks.append({**{k: v for k, v in page.items() if k != 'text'},
+                'id': len(chunks), 'text': text, 'tokens': tokens, 'headings': section.metadata})
     return chunks
-
 
 def build(config, rebuild=False):
     # Explicit overrides keep experiment variants and --config independent of module defaults.
