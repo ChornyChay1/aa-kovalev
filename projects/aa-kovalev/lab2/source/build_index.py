@@ -2,7 +2,9 @@
 import argparse
 from pathlib import Path
 import json
+import re
 from time import perf_counter
+from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from common import CONFIG, EMBEDDING_MODEL, ROOT, ARTIFACTS, API, settings, digest, read, write, get_tokenizer
 from prepare import prepare
@@ -22,16 +24,26 @@ def split_pages(pages, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP,
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size, chunk_overlap=overlap, length_function=count_tokens)
 
+    # Split headings across the whole book, retaining their hierarchy between pages.
+    markdown = '\n\n'.join(f'<!-- PAGE:{p["page"]} -->\n\n{p["text"]}' for p in pages)
+    page_by_number = {p['page']: p for p in pages}
+    page = pages[0]
     chunks = []
-    for page in pages:
-        sections = header_splitter.split_text(page['text'])
-        for section in text_splitter.split_documents(sections):
-            text = section.page_content
-            tokens = count_tokens(text)
-            if tokens > chunk_size:
-                raise ValueError('Фрагмент превышает chunk_size')
-            chunks.append({**{k: v for k, v in page.items() if k != 'text'},
-                'id': len(chunks), 'text': text, 'tokens': tokens, 'headings': section.metadata})
+    for section in header_splitter.split_text(markdown):
+        for i, fragment in enumerate(re.split(r'(?m)^<!-- PAGE:(\d+) -->[ \t]*$', section.page_content)):
+            if i % 2:
+                page = page_by_number[int(fragment)]
+                continue
+            if not fragment.strip():
+                continue
+            document = Document(page_content=fragment.strip(), metadata=section.metadata)
+            for chunk in text_splitter.split_documents([document]):
+                text = chunk.page_content
+                tokens = count_tokens(text)
+                if tokens > chunk_size:
+                    raise ValueError('Фрагмент превышает chunk_size')
+                chunks.append({**{k: v for k, v in page.items() if k != 'text'},
+                    'id': len(chunks), 'text': text, 'tokens': tokens, 'headings': chunk.metadata})
     return chunks
 
 def build(config, rebuild=False):
@@ -41,7 +53,8 @@ def build(config, rebuild=False):
     corpus = prepare(config)
     api = API(config)
     try:
-        identity = {'config': config, 'corpus': read(corpus / 'manifest.json')['pages_sha256']}
+        identity = {'config': config, 'corpus': read(corpus / 'manifest.json')['pages_sha256'],
+                    'splitter_sha256': digest(Path(__file__).read_bytes())}
         version = digest(json.dumps(identity, sort_keys=True).encode())[:16]
         folder = ARTIFACTS / 'indexes' / version
         if (folder / 'manifest.json').exists() and not rebuild:
