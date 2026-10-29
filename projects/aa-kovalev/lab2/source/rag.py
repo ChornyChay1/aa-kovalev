@@ -48,7 +48,14 @@ class RAG:
         return hits, perf_counter() - started
 
     def answer(self, question, hits):
-        contexts = hits[:self.context_chunks]
+        contexts = []
+        seen = set()
+        for hit in hits:
+            if hit['id'] not in seen:
+                contexts.append(hit)
+                seen.add(hit['id'])
+            if len(contexts) == self.context_chunks:
+                break
         if not contexts:
             return {'answer': 'В документации не найден ответ.', 'citations': [], 'usage': {}, 'generation_s': 0}
         text = '\n\n'.join(f'[{i}] {c["title"]}; PDF {c["start_page"]}–{c["end_page"]}; {c["section"]}\n{c["text"]}'
