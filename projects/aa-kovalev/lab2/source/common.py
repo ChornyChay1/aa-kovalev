@@ -15,9 +15,10 @@ EMBEDDING_MODEL = CONFIG['embedding_model']
 BM25_MODEL = 'qdrant/bm25'
 BM25_OPTIONS = {'language': 'russian'}
 
-# Ollama's BGE-M3 and the chunk splitter use the same model vocabulary.
-EMBEDDING_TOKENIZERS = {'bge-m3': 'BAAI/bge-m3', 'bge-m3:567m': 'BAAI/bge-m3',
-                        'bge-m3:latest': 'BAAI/bge-m3'}
+# Use each model's own tokenizer for indexing and generation.
+MODEL_TOKENIZERS = {'bge-m3': 'BAAI/bge-m3', 'bge-m3:567m': 'BAAI/bge-m3',
+                    'bge-m3:latest': 'BAAI/bge-m3',
+                    'gemma3:4b': 'unsloth/gemma-3-4b-it'}
 
 
 def read(path):
@@ -51,7 +52,7 @@ def _load_tokenizer(name):
     return AutoTokenizer.from_pretrained(name)
 
 def get_tokenizer(model=EMBEDDING_MODEL):
-    expected = EMBEDDING_TOKENIZERS.get(model)
+    expected = MODEL_TOKENIZERS.get(model)
     if expected is None:
         raise ValueError('Неизвестный токенизатор для модели ' + model)
     return _load_tokenizer(expected)

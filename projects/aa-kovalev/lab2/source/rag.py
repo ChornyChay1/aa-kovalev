@@ -64,8 +64,8 @@ class RAG:
         if not hits:
             return {'answer': 'В документации не найден ответ.', 'citations': [], 'usage': {}, 'generation_s': 0}
 
-        # BGE-M3 estimates token usage; leave room for the Ollama chat template and reply.
-        tokenizer = get_tokenizer()
+        # Count the full Gemma chat prompt; keep a buffer for Ollama and the reply.
+        tokenizer = get_tokenizer(self.llm)
         budget = int(self.context_length() * CONTEXT_SAFETY_FACTOR) - MAX_OUTPUT_TOKENS
         contexts = []
         for hit in hits[:self.context_chunks]:
@@ -75,7 +75,10 @@ class RAG:
                 middle = (low + high + 1) // 2
                 candidate = {**hit, 'text': text[:middle]}
                 prompt = make_prompt(question, contexts + [candidate])
-                if len(tokenizer.encode(prompt)) <= budget:
+                tokens = tokenizer.apply_chat_template(
+                    [{'role': 'user', 'content': prompt}],
+                    tokenize=True, add_generation_prompt=True)
+                if len(tokens) <= budget:
                     low = middle
                 else:
                     high = middle - 1
