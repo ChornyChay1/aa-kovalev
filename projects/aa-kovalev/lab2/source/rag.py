@@ -8,7 +8,7 @@ LLM = CONFIG['llm']
 CONTEXT_CHUNKS = CONFIG['context_chunks']
 EF_SEARCH = CONFIG['hnsw']['ef_search']
 MAX_OUTPUT_TOKENS = 512
-CONTEXT_SAFETY_FACTOR = 0.75
+CONTEXT_SAFETY_FACTOR = 0.9
 
 
 def make_prompt(question, contexts):
