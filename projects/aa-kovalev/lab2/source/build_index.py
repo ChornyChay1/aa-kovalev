@@ -42,6 +42,7 @@ def split_markdown(markdown, manifest, *, chunk_size=CHUNK_SIZE, overlap=OVERLAP
     chunks = []
     for section in header_splitter.split_text(markdown):
         text, boundaries = remove_page_markers(section.page_content, page_number)
+        # boundaries (int,int) - с какого символа начинается страница, номер страницы
         page_number = boundaries[-1][1]
         heading = '\n'.join(f'{level} {section.metadata[level]}'
                             for level, _ in headers if level in section.metadata)

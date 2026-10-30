@@ -68,24 +68,26 @@ class RAG:
         tokenizer = get_tokenizer(self.llm)
         budget = int(self.context_length() * CONTEXT_SAFETY_FACTOR) - MAX_OUTPUT_TOKENS
         contexts = []
+
         for hit in hits[:self.context_chunks]:
-            text = hit['text']
-            low, high = 0, len(text)
-            while low < high:
-                middle = (low + high + 1) // 2
-                candidate = {**hit, 'text': text[:middle]}
-                prompt = make_prompt(question, contexts + [candidate])
-                tokens = tokenizer.apply_chat_template(
-                    [{'role': 'user', 'content': prompt}],
-                    tokenize=True, add_generation_prompt=True)
-                if len(tokens) <= budget:
-                    low = middle
-                else:
-                    high = middle - 1
-            if low == 0:
+            empty_hit = {**hit, 'text': ''}
+            prompt = make_prompt(question, contexts + [empty_hit])
+
+            used = len(tokenizer.apply_chat_template(
+                [{'role': 'user', 'content': prompt}],
+                tokenize=True,
+                add_generation_prompt=True,
+            ))
+
+            remaining = budget - used
+            if remaining <= 0:
                 break
-            contexts.append({**hit, 'text': text[:low]})
-            if low < len(text):
+
+            tokens = tokenizer.encode(hit['text'], add_special_tokens=False)
+            text = tokenizer.decode(tokens[:remaining], skip_special_tokens=True)
+            contexts.append({**hit, 'text': text})
+
+            if len(tokens) > remaining:
                 break
         if not contexts:
             raise ValueError('Вопрос не помещается в контекст модели')
