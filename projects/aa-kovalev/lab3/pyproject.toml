@@ -1,0 +1,13 @@
+[project]
+name = "aa-kovalev-lab3"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28,<0.29", "transformers>=4.51,<5", "sentencepiece>=0.2,<1",
+  "openai>=1.99,<2", "langfuse==3.15.0", "smolagents[openai]==1.22.0",
+  "openinference-instrumentation-smolagents==0.1.18", "python-dotenv>=1,<2",
+  "simpleeval>=1,<2",
+]
+
+[tool.uv]
+package = false

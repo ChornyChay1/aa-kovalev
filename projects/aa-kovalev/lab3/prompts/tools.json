@@ -1,0 +1,5 @@
+[
+  {"type":"function","function":{"name":"search_book","description":"Поиск фрагментов в RAG Лабы 2. Возвращает текст, ID, PDF-страницы и score. Можно повторить с другим запросом.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Поисковый запрос по содержанию учебника"}},"required":["query"],"additionalProperties":false}}},
+  {"type":"function","function":{"name":"read_page","description":"Прочитать полную PDF-страницу из подготовленного Markdown учебника. Номер можно узнать из search_book.","parameters":{"type":"object","properties":{"page":{"type":"integer","description":"Номер PDF-страницы, не печатная нумерация"}},"required":["page"],"additionalProperties":false}}},
+  {"type":"function","function":{"name":"calculate","description":"Вычислить арифметическое выражение: числа, скобки, +, -, *, /, //, %. Без имён, функций и Python-кода.","parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Арифметическое выражение"}},"required":["expression"],"additionalProperties":false}}}
+]
