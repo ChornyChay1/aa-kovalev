@@ -1,67 +1,26 @@
 """Готовый smolagents, без изменения его цикла и стратегии памяти."""
-from typing import Any
-
 import httpx
 
-from book_tools import BookTools
-from contracts import AgentStats, ToolResult, TurnStatus
-from smolagents import Tool, ToolCallingAgent, OpenAIServerModel
+from models.domain import TurnStatus
+from models.schemas import AgentStats
+from tools.book import BookTools
+from tools.smolagents_tools import build_tools
+from smolagents import ToolCallingAgent, OpenAIServerModel
 from smolagents.memory import ActionStep
 from openinference.instrumentation.smolagents import SmolagentsInstrumentor
-from settings import CONFIG, SYSTEM, SCHEMAS, BASE_URL, API_KEY
-
-
-class BookTool(Tool):
-    def __init__(self, schema: dict[str, Any], tools: BookTools) -> None:
-        spec = schema['function']
-        self.name, self.description = spec['name'], spec['description']
-        self.inputs = spec['parameters']['properties']
-        self.output_type = 'any'
-        self.tools = tools
-        super().__init__()
-
-
-class SearchBookTool(BookTool):
-    def forward(self, query: str) -> ToolResult:
-        return self.tools.call(self.name, {'query': query})
-
-
-class ManageQuizTool(BookTool):
-    def forward(self, action: str, quiz_id: str | None = None,
-                title: str | None = None, questions: list[dict[str, Any]] | None = None,
-                question_number: int | None = None, question: dict[str, Any] | None = None,
-                option: str | None = None) -> ToolResult:
-        return self.tools.call(self.name, dict(
-            action=action, quiz_id=quiz_id, title=title, questions=questions,
-            question_number=question_number, question=question, option=option))
-
-
-class ListQuizesTool(BookTool):
-    def forward(self) -> ToolResult:
-        return self.tools.call(self.name, {})
-
-
-class GetQuizInfoTool(BookTool):
-    def forward(self, quiz_id: str, question_number: int | None = None) -> ToolResult:
-        return self.tools.call(self.name, dict(quiz_id=quiz_id, question_number=question_number))
-
-
-TOOL_CLASSES = {
-    'search_book': SearchBookTool,
-    'manage_quiz': ManageQuizTool,
-    'list_quizes': ListQuizesTool,
-    'get_quiz_info': GetQuizInfoTool,
-}
+from services.prompts import system_prompt
+from settings import API_KEY, BASE_URL, CONFIG
 
 
 class ReadyAgent:
     def __init__(self, tools: BookTools) -> None:
+        instructions, self.prompt_version = system_prompt()
         self.model = OpenAIServerModel(model_id=CONFIG['model'], api_base=BASE_URL,
             api_key=API_KEY, client_kwargs={'timeout': CONFIG['timeout_seconds'], 'max_retries': 0,
                 'http_client': httpx.Client(trust_env=False)},
             temperature=CONFIG['temperature'], max_tokens=CONFIG['max_output_tokens'])
         self.agent = ToolCallingAgent(model=self.model,
-            tools=[TOOL_CLASSES[schema['function']['name']](schema, tools) for schema in SCHEMAS], instructions=SYSTEM,
+            tools=build_tools(tools), instructions=instructions,
             max_steps=CONFIG['max_steps'], verbosity_level=0)
         self.first = True
 

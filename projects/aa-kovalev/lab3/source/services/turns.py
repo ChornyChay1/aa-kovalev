@@ -3,9 +3,10 @@ from time import perf_counter
 
 from langfuse import get_client, propagate_attributes
 
-from book_tools import BookTools
-from contracts import AgentStats, DialogueAgent, TurnMetrics, TurnResult
-from observability import trace_url
+from tools.book import BookTools
+from models.domain import DialogueAgent
+from models.schemas import AgentStats, TurnMetrics, TurnResult
+from services.observability import trace_url
 from settings import CONFIG, cost
 
 
@@ -20,7 +21,7 @@ def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
     with lf.start_as_current_observation(name=trace_name, input=question) as span:
         with propagate_attributes(user_id=CONFIG['user_id'], session_id=session,
                 tags=tags, trace_name=trace_name, version=CONFIG['version'],
-                metadata={'run_id': run_id, 'agent': agent_name}):
+                metadata={'run_id': run_id, 'agent': agent_name, 'system_prompt': agent.prompt_version}):
             try:
                 answer, stats = agent.answer(question)
             except Exception as error:

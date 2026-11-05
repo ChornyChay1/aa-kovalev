@@ -1,48 +1,14 @@
-"""Хранилище квизов, общее для веб-формы и инструментов агента."""
+"""Хранилище квизов в SQLite."""
 import json
 import sqlite3
 from contextlib import closing
+from typing import Any
 from uuid import uuid4
-from typing import Any, Self, TypedDict
 
-from pydantic import BaseModel, Field, model_validator
-
+from constants import CREATE, DELETE, MAX_OPTIONS, MAX_QUESTIONS, MAX_QUIZ_TITLE, UPDATE, WEB_QUIZ_COLLECTION
+from models.domain import Quiz, QuizSummary
+from models.schemas import Question
 from settings import ROOT
-
-WEB_QUIZ_COLLECTION = 'web'
-
-
-class QuizSummary(TypedDict):
-    quiz_id: str
-    title: str
-    url: str
-
-
-class QuizQuestion(TypedDict):
-    text: str
-    options: list[str]
-    correct: int
-
-
-class Quiz(QuizSummary):
-    questions: list[QuizQuestion]
-
-
-class Question(BaseModel):
-    text: str = Field(min_length=1, max_length=500)
-    options: list[str] = Field(min_length=2, max_length=5)
-    correct: int = Field(
-        ge=1, le=5,
-        description='Номер правильного варианта в options: 1 — первый, 2 — второй и так далее. Нуля быть не может.',
-    )
-
-    @model_validator(mode='after')
-    def validate_options(self) -> Self:
-        if self.correct > len(self.options):
-            raise ValueError('Номер правильного варианта вне диапазона')
-        if any(not option.strip() or len(option) > 250 for option in self.options):
-            raise ValueError('Варианты должны содержать от 1 до 250 символов')
-        return self
 
 
 def connect() -> sqlite3.Connection:
@@ -101,10 +67,11 @@ def manage_quiz(
     session: str, action: str, quiz_id: str | None = None, title: str | None = None,
     questions: list[dict[str, Any]] | None = None, question_number: int | None = None,
     question: dict[str, Any] | None = None, option: str | None = None,
+    option_number: int | None = None,
 ) -> dict[str, Any]:
     with closing(connect()) as db, db:
-        if action == 'create':
-            if not title or not title.strip() or len(title) > 150 or not questions or len(questions) > 10:
+        if action == CREATE:
+            if not title or not title.strip() or len(title) > MAX_QUIZ_TITLE or not questions or len(questions) > MAX_QUESTIONS:
                 raise ValueError('Укажите название и от 1 до 10 вопросов')
             quiz_id = uuid4().hex
             data = [Question.model_validate(q).model_dump() for q in questions]
@@ -117,22 +84,31 @@ def manage_quiz(
         row = db.execute('SELECT * FROM quizzes WHERE id = ? AND session = ?', (quiz_id, session)).fetchone()
         if row is None:
             raise ValueError('Квиз не найден в доступной коллекции')
-        if action == 'delete':
+        if action == DELETE:
             db.execute('DELETE FROM quizzes WHERE id = ?', (quiz_id,))
             return {'quiz_id': quiz_id, 'deleted': True}
-        if action != 'update':
+        if action != UPDATE:
             raise ValueError('Допустимые действия: create, update, delete')
         data = json.loads(row['questions'])
         index = question_index(question_number, len(data))
+        if option_number is not None and option is None:
+            raise ValueError('Укажите текст варианта')
+        changed_option = None
         if option is not None:
             if question is not None:
-                raise ValueError('Передайте либо новый вариант, либо вопрос целиком')
+                raise ValueError('Передайте либо вариант, либо вопрос целиком')
             question = data[index]
-            if len(question['options']) >= 5:
+            options = question['options']
+            if option_number is None and len(options) >= MAX_OPTIONS:
                 raise ValueError('В вопросе уже пять вариантов')
-            if option.strip().casefold() in {text.strip().casefold() for text in question['options']}:
+            if option_number is not None and (type(option_number) is not int or not 1 <= option_number <= len(options)):
+                raise ValueError('Номер варианта вне диапазона')
+            position = len(options) if option_number is None else option_number - 1
+            other_options = options[:position] + options[position + 1:]
+            if option.strip().casefold() in {text.strip().casefold() for text in other_options}:
                 raise ValueError('Такой вариант уже есть')
-            question['options'].append(option)
+            options[position:position + 1] = [option]
+            changed_option = {'option_number': position + 1, 'option': option}
         data[index] = Question.model_validate(question).model_dump()
         db.execute('UPDATE quizzes SET questions = ? WHERE id = ?', (json.dumps(data), quiz_id))
-        return {**public(row), 'updated_question': question_number}
+        return {**public(row), 'updated_question': question_number, **(changed_option or {})}

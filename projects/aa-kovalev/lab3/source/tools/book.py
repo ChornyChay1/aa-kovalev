@@ -3,11 +3,13 @@ import json
 from pathlib import Path
 from time import monotonic
 
-from contracts import SearchHit, ToolArguments, ToolCall, ToolResult
+from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
+from models.domain import SearchHit, ToolArguments, ToolResult
+from models.schemas import ToolCall
 import httpx
 from langfuse import get_client
 from settings import LAB2, CONFIG
-from quizzes import manage_quiz, list_quizes, get_quiz_info
+from services.quizzes import manage_quiz, list_quizes, get_quiz_info
 
 from rag import RAG
 
@@ -19,8 +21,6 @@ class BookTools:
             active = json.loads((LAB2 / 'artifacts/active.json').read_text(encoding='utf-8'))
             index = LAB2 / active['index']
         self.rag = RAG(index)
-        self.chunks = [p['payload'] for p in json.loads(
-            (self.rag.folder / 'points.json').read_text(encoding='utf-8'))]
         self.reset()
 
     def reset(self) -> None:
@@ -48,17 +48,17 @@ class BookTools:
         remaining = self.deadline - monotonic()
         if remaining <= 0:
             raise TimeoutError('Исчерпан таймаут реплики')
-        if name == 'search_book':
+        if name == SEARCH_BOOK:
             return self.search_book(arguments, remaining)
-        if name == 'manage_quiz':
+        if name == MANAGE_QUIZ:
             return manage_quiz(self.session, **arguments)
-        if name == 'list_quizes':
+        if name == LIST_QUIZES:
             quizzes = list_quizes(self.session)
             result: ToolArguments = {'quizzes': quizzes, 'count': len(quizzes)}
             if not quizzes:
                 result['message'] = 'В доступной коллекции пока нет квизов.'
             return result
-        if name == 'get_quiz_info':
+        if name == GET_QUIZ_INFO:
             return get_quiz_info(self.session, **arguments)
         raise ValueError('Неизвестный инструмент: ' + name)
 

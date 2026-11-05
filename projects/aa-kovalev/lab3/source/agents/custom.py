@@ -5,11 +5,10 @@ from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from functools import lru_cache
 from time import monotonic
-from typing import Literal
 
 import httpx2
 from langfuse import get_client
-from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, Tool, UsageLimits
+from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
@@ -26,17 +25,14 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from book_tools import BookTools
-from contracts import AgentStats, ToolResult
-
-from quizzes import Question
-from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS, SYSTEM
+from constants import FALLBACK_HISTORY_TOKENS, RECENT_HISTORY_TOKENS, SUMMARY_TOKENS, TOOL_OUTPUT_CHARS
+from models.schemas import AgentStats
+from tools.book import BookTools
+from tools.pydantic_tools import build_tools
+from services.prompts import system_prompt
+from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS
 
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
-SUMMARY_TOKENS = 240
-RECENT_HISTORY_TOKENS = 900
-FALLBACK_HISTORY_TOKENS = 600
-TOOL_OUTPUT_CHARS = 1400
 
 
 @lru_cache(maxsize=1)
@@ -62,6 +58,7 @@ def require_nonempty_answer(output: str) -> str:
 
 class Agent:
     def __init__(self, tools: BookTools) -> None:
+        self.instructions, self.prompt_version = system_prompt()
         self.tools = tools
         self.on_event: Callable[[str, str], None] | None = None
         self.history: list[ModelMessage] = []
@@ -87,46 +84,19 @@ class Agent:
             ],
             fallback_on=(ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded),
             tokenizer=count_text)
-        descriptions = {spec['function']['name']: spec['function']['description'] for spec in SCHEMAS}
-        handlers = (self.search_book, self.manage_quiz, self.list_quizes, self.get_quiz_info)
         self.agent = PydanticAgent(
-            model, instructions=SYSTEM, retries=2,
+            model, instructions=self.instructions, retries=2,
             capabilities=[
                 Instrumentation(),
                 ToolOutputLimits(bands=[Band(TOOL_OUTPUT_CHARS, Truncate(max_chars=TOOL_OUTPUT_CHARS))]),
                 ProcessHistory(self.fit_context),
             ],
-            tools=[Tool(handler, description=descriptions[handler.__name__]) for handler in handlers])
+            tools=build_tools(tools))
         self.agent.output_validator(require_nonempty_answer)
-
-    def search_book(self, query: str) -> ToolResult:
-        return self.tools.call('search_book', {'query': query})
-
-    def manage_quiz(self, action: Literal['create', 'update', 'delete'],
-                    quiz_id: str | None = None, title: str | None = None,
-                    questions: list[Question] | None = None,
-                    question_number: int | None = None, question: Question | None = None,
-                    option: str | None = None) -> ToolResult:
-        if action == 'create' and (not title or not title.strip() or len(title) > 150
-                                   or not questions or len(questions) > 10):
-            raise ModelRetry(
-                'Для create придумай непустой title до 150 символов и передай questions '
-                'с 1–10 полностью заполненными вопросами. Соблюдай количество из запроса.'
-            )
-        args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
-                    questions=[q.model_dump() for q in questions] if questions else None,
-                    question=question.model_dump() if question else None, option=option)
-        return self.tools.call('manage_quiz', args)
-
-    def list_quizes(self) -> ToolResult:
-        return self.tools.call('list_quizes', {})
-
-    def get_quiz_info(self, quiz_id: str, question_number: int | None = None) -> ToolResult:
-        return self.tools.call('get_quiz_info', dict(quiz_id=quiz_id, question_number=question_number))
 
     def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
-        return count_text(SYSTEM + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
+        return count_text(self.instructions + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
 
     async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
         before = self.count(messages)

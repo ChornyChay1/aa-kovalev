@@ -9,7 +9,7 @@ from statistics import mean
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 from langfuse import Langfuse, get_client, propagate_attributes
-from observability import require_project
+from services.observability import require_project
 
 from settings import LAB2  # Подключает модули Лабы 2.
 from retrieval_metrics import metrics, relevant_chunk_ids
