@@ -8,7 +8,7 @@ from threading import Lock
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from langfuse import get_client
 from pydantic import BaseModel, Field
@@ -17,7 +17,7 @@ from agent import Agent
 from book_tools import BookTools
 from quizzes import Quiz, get_quiz
 from turns import turn
-from settings import ROOT
+from settings import LAB2, ROOT
 
 
 @dataclass
@@ -75,11 +75,17 @@ class Chat(BaseModel):
     session: str | None = None
 
 
+class BookPage(BaseModel):
+    page: int
+    url: str
+
+
 class ChatResponse(BaseModel):
     session: str
     answer: str
     status: str
     trace_url: str | None
+    book_pages: list[BookPage]
 
 
 class Attempt(BaseModel):
@@ -97,8 +103,20 @@ def chat(request: Request, message: Chat) -> ChatResponse:
     session, dialogue = sessions.get(message.session)
     with dialogue.lock:
         row = turn(dialogue.agent, dialogue.tools, message.message, session, 'custom', 'web')
+        pages = dict.fromkeys(hit['page'] for hits in row.retrievals for hit in hits)
+    book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
     return ChatResponse(session=session, answer=row.output, status=row.status,
-                        trace_url=row.trace_url)
+                        trace_url=row.trace_url, book_pages=book_pages)
+
+
+@app.get('/document/{session}', response_class=FileResponse)
+def document(request: Request, session: str) -> FileResponse:
+    sessions: ChatSessions = request.app.state.chat_sessions
+    _, dialogue = sessions.get(session)
+    pdf = LAB2 / dialogue.tools.rag.manifest['corpus_path'] / 'book.pdf'
+    if not pdf.is_file():
+        raise HTTPException(404, 'PDF учебника не найден в корпусе Лабы 2.')
+    return FileResponse(pdf, media_type='application/pdf')
 
 
 def quiz_or_404(quiz_id: str) -> Quiz:

@@ -61,6 +61,17 @@ form.onsubmit = async (event) => {
     if (!response.ok) throw new Error(result.detail);
     session = result.session;
     const item = append('Агент', result.answer, true);
+    if (result.book_pages.length) {
+      item.append('\nНайдено в учебнике');
+      for (const page of result.book_pages) {
+        const link = document.createElement('a');
+        link.href = page.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'стр. ' + page.page;
+        item.append(' ', link);
+      }
+    }
     if (result.trace_url && /^https?:\/\//.test(result.trace_url)) {
       const link = document.createElement('a');
       link.href = result.trace_url;
