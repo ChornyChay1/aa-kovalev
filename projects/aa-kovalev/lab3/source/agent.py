@@ -14,8 +14,7 @@ from pydantic_ai.capabilities import Instrumentation, ProcessHistory
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
-    ModelMessagesTypeAdapter, ModelRequest, PartDeltaEvent, PartStartEvent, TextPart,
-    TextPartDelta, ToolReturnPart, UserPromptPart,
+    ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -175,10 +174,6 @@ class Agent:
                 emit('tool', event.part.tool_name)
             elif isinstance(event, FunctionToolResultEvent):
                 emit('tool_done', event.part.tool_name)
-            elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
-                emit('text', event.part.content)
-            elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                emit('text', event.delta.content_delta)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
         self.stats = AgentStats(

@@ -208,8 +208,6 @@ form.onsubmit = async event => {
   appendMessage('Вы', message);
   status.textContent = 'Агент работает…';
   status.scrollIntoView({block: 'nearest'});
-  const draft = document.createElement('article');
-  draft.className = 'plain';
   const tools = [];
   try {
     const response = await fetch('/api/chat/stream', {
@@ -217,14 +215,7 @@ form.onsubmit = async event => {
       body: JSON.stringify({session: dialog?.session, message})
     });
     const result = await readEvents(response, ({kind, value}) => {
-      if (kind === 'text') {
-        if (!draft.isConnected) historyPanel.append(draft);
-        draft.append(value);
-        return;
-      }
       if (kind === 'tool') {
-        draft.replaceChildren();
-        draft.remove();
         tools.push(value);
       } else if (kind === 'tool_done') {
         const index = tools.indexOf(value);
