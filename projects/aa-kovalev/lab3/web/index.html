@@ -8,7 +8,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #17243b; background: #f5f7fb; }
 .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); max-width: 1180px; min-height: 100dvh; margin: auto; }
-aside { padding: 1.5rem 1rem; background: #eaf0fa; }
+aside { position: sticky; top: 0; height: 100dvh; overflow: auto; padding: 1.5rem 1rem; background: #eaf0fa; }
 main { width: min(100%, 820px); margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 3rem); }
 h1, h2, p { margin: 0 0 .75rem; }
 h1 { font-size: clamp(1.65rem, 5vw, 2.4rem); }
@@ -21,9 +21,21 @@ button:disabled { cursor: default; opacity: .55; }
 #dialogs button { display: block; width: 100%; text-align: left; margin-bottom: .35rem; color: inherit; background: transparent; overflow-wrap: anywhere; }
 #dialogs button:hover, #dialogs [aria-current="true"] { background: #d5e2fb; }
 #history { display: grid; gap: .75rem; margin: 1.5rem 0; }
-article { white-space: pre-wrap; overflow-wrap: anywhere; border-radius: .85rem; background: white; padding: .85rem 1rem; }
-article.user { background: #e3ecff; justify-self: end; max-width: 90%; }
-article strong { display: block; margin-bottom: .3rem; }
+article { overflow-wrap: anywhere; border-radius: .85rem; background: white; padding: .85rem 1rem; }
+article.user { white-space: pre-wrap; background: #e3ecff; justify-self: end; max-width: 90%; }
+article > strong { display: block; margin-bottom: .3rem; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h2, .markdown h3 { margin: .85rem 0 .4rem; }
+.markdown ul, .markdown ol { padding-left: 1.6rem; }
+.markdown pre { overflow: auto; padding: .85rem; border-radius: .6rem; background: #17243b; color: #f5f7fb; }
+.markdown code { font: .9em ui-monospace, monospace; }
+.markdown :not(pre) > code { padding: .1em .3em; border-radius: .25rem; background: #edf2fa; }
+.markdown blockquote { margin-left: 0; padding-left: .85rem; border-left: 3px solid #aebcd3; color: #495970; }
+.markdown { overflow-x: auto; }
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td { border: 1px solid #cad6e8; padding: .4rem .6rem; }
+.markdown th { background: #edf2fa; }
+.plain { white-space: pre-wrap; }
 a { color: #2149af; }
 .sources { margin-top: .65rem; font-size: .9rem; }
 form { display: grid; gap: .6rem; justify-items: start; }
@@ -32,6 +44,7 @@ textarea { width: 100%; min-height: 5rem; resize: vertical; padding: .8rem; bord
 @media (max-width: 640px) {
   .layout { grid-template-columns: 1fr; }
   aside, main { padding: 1rem; }
+  aside { position: static; height: auto; }
   #dialogs { max-height: 9rem; overflow: auto; }
 }
 </style>
@@ -54,8 +67,10 @@ textarea { width: 100%; min-height: 5rem; resize: vertical; padding: .8rem; bord
     <p id="status" role="status"></p>
   </main>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/marked@15.0.0/lib/marked.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.17/dist/purify.min.js"></script>
 <script>
-const STORAGE_KEY = 'lab3-dialogues';
+const ACTIVE_DIALOG_KEY = 'lab3-active-dialog';
 const historyPanel = document.querySelector('#history');
 const dialogsPanel = document.querySelector('#dialogs');
 const newDialog = document.querySelector('#new-dialog');
@@ -63,7 +78,9 @@ const form = document.querySelector('form');
 const input = form.querySelector('textarea');
 const send = document.querySelector('#send');
 const status = document.querySelector('#status');
-const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"dialogues":[],"active":null}');
+const legacy = JSON.parse(localStorage.getItem('lab3-dialogues') || '{"dialogues":[]}');
+const archived = legacy.dialogues.map(dialog => ({...dialog, archived: true}));
+const state = {dialogues: archived, active: localStorage.getItem(ACTIVE_DIALOG_KEY) ?? legacy.active};
 let busy = false;
 
 function activeDialog() {
@@ -71,7 +88,7 @@ function activeDialog() {
 }
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(ACTIVE_DIALOG_KEY, state.active ?? '');
 }
 
 function addLink(parent, label, url, newTab = false) {
@@ -92,14 +109,19 @@ function appendMessage(label, message, result) {
   author.textContent = label;
   article.append(author);
   if (result) {
-    const quizLinks = /\[([^\]\n]+)\]\((\/quiz\/[a-f0-9]{32})\)|(\/quiz\/[a-f0-9]{32})/g;
-    let start = 0;
-    for (const match of message.matchAll(quizLinks)) {
-      article.append(message.slice(start, match.index));
-      addLink(article, match[1] || 'Открыть квиз', match[2] || match[3]);
-      start = match.index + match[0].length;
+    const body = document.createElement('div');
+    if (window.marked && window.DOMPurify?.isSupported) {
+      body.className = 'markdown';
+      body.innerHTML = DOMPurify.sanitize(marked.parse(message, {gfm: true}), {
+        USE_PROFILES: {html: true},
+        FORBID_TAGS: ['img', 'form', 'style'],
+        FORBID_ATTR: ['style'],
+      });
+    } else {
+      body.className = 'plain';
+      body.textContent = message;
     }
-    article.append(message.slice(start));
+    article.append(body);
     const sources = document.createElement('div');
     sources.className = 'sources';
     if (result.book_pages.length) {
@@ -142,13 +164,13 @@ function render() {
     historyPanel.append(hint);
   }
   newDialog.disabled = busy;
-  input.disabled = send.disabled = busy || Boolean(active?.ended);
+  input.disabled = send.disabled = busy || Boolean(active?.archived);
 }
 
 function select(session) {
   state.active = session;
   input.value = '';
-  status.textContent = activeDialog()?.ended ? 'Сессия завершилась. Переписку можно прочитать здесь.' : '';
+  status.textContent = activeDialog()?.archived ? 'Архив старой версии. Здесь можно прочитать переписку.' : '';
   save();
   render();
   if (!input.disabled) input.focus();
@@ -158,7 +180,7 @@ newDialog.onclick = () => select(null);
 form.onsubmit = async event => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message || busy || activeDialog()?.ended) return;
+  if (!message || busy || activeDialog()?.archived) return;
   let dialog = activeDialog();
   busy = true;
   render();
@@ -171,13 +193,7 @@ form.onsubmit = async event => {
       body: JSON.stringify({session: dialog?.session, message})
     });
     const result = await response.json();
-    if (!response.ok) {
-      if (response.status === 404 && dialog) {
-        dialog.ended = true;
-        save();
-      }
-      throw new Error(result.detail);
-    }
+    if (!response.ok) throw new Error(result.detail);
     if (!dialog) {
       dialog = {session: result.session, title: message.slice(0, 70), turns: []};
       state.dialogues.unshift(dialog);
@@ -196,8 +212,27 @@ form.onsubmit = async event => {
     if (!input.disabled) input.focus({preventScroll: true});
   }
 };
-render();
-if (activeDialog()?.ended) status.textContent = 'Сессия завершилась. Переписку можно прочитать здесь.';
+async function loadDialogues() {
+  busy = true;
+  render();
+  try {
+    const response = await fetch('/api/dialogues');
+    if (!response.ok) throw new Error('Не удалось загрузить список диалогов.');
+    const saved = await response.json();
+    state.dialogues = [...saved, ...archived.filter(dialog =>
+      !saved.some(item => item.session === dialog.session))];
+    if (activeDialog()?.archived) {
+      status.textContent = 'Архив старой версии. Здесь можно прочитать переписку.';
+    }
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    busy = false;
+    render();
+  }
+}
+
+loadDialogues();
 </script>
 </body>
 </html>

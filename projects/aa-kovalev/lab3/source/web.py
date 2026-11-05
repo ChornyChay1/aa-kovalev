@@ -1,4 +1,5 @@
 """Local quiz forms and chat API."""
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import ExitStack, asynccontextmanager, closing
 from dataclasses import dataclass
@@ -12,12 +13,24 @@ from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from langfuse import get_client
 from pydantic import BaseModel, Field
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 from agent import Agent
 from book_tools import BookTools
 from quizzes import Quiz, get_quiz
 from turns import turn
 from settings import LAB2, ROOT
+
+
+DIALOGUES_DB = ROOT / 'dialogues.sqlite3'
+
+
+def connect_dialogues() -> sqlite3.Connection:
+    db = sqlite3.connect(DIALOGUES_DB)
+    db.execute("""CREATE TABLE IF NOT EXISTS dialogues (
+        session TEXT PRIMARY KEY, history BLOB NOT NULL, transcript TEXT NOT NULL
+    )""")
+    return db
 
 
 @dataclass
@@ -35,11 +48,17 @@ class ChatSessions:
 
     def get(self, session: str | None) -> tuple[str, Dialogue]:
         with self.lock:
-            if session is not None:
-                if session not in self.dialogues:
-                    raise HTTPException(404, 'Сессия завершилась. Начните новый диалог.')
+            history = []
+            if session is None:
+                session = uuid4().hex
+            elif session in self.dialogues:
                 return session, self.dialogues[session]
-            session = uuid4().hex
+            else:
+                with closing(connect_dialogues()) as db:
+                    row = db.execute('SELECT history FROM dialogues WHERE session = ?', (session,)).fetchone()
+                if row is None:
+                    raise HTTPException(404, 'Диалог не найден.')
+                history = ModelMessagesTypeAdapter.validate_json(row[0])
             # Keep resources only after both objects were created successfully.
             with ExitStack() as opening:
                 try:
@@ -48,6 +67,7 @@ class ChatSessions:
                 except FileNotFoundError as error:
                     raise HTTPException(503, 'Подготовьте активный индекс Лабы 2.') from error
                 self.resources.enter_context(opening.pop_all())
+            agent.history = history
             dialogue = Dialogue(agent, tools, Lock())
             self.dialogues[session] = dialogue
             return session, dialogue
@@ -88,6 +108,17 @@ class ChatResponse(BaseModel):
     book_pages: list[BookPage]
 
 
+class ChatTurn(BaseModel):
+    message: str
+    result: ChatResponse
+
+
+class Transcript(BaseModel):
+    session: str
+    title: str
+    turns: list[ChatTurn] = Field(default_factory=list)
+
+
 class Attempt(BaseModel):
     answers: list[int]
 
@@ -97,6 +128,13 @@ def home() -> str:
     return (ROOT / 'web/index.html').read_text(encoding='utf-8')
 
 
+@app.get('/api/dialogues')
+def dialogues() -> list[Transcript]:
+    with closing(connect_dialogues()) as db:
+        rows = db.execute('SELECT transcript FROM dialogues ORDER BY rowid DESC').fetchall()
+    return [Transcript.model_validate_json(row[0]) for row in rows]
+
+
 @app.post('/api/chat')
 def chat(request: Request, message: Chat) -> ChatResponse:
     sessions: ChatSessions = request.app.state.chat_sessions
@@ -104,9 +142,20 @@ def chat(request: Request, message: Chat) -> ChatResponse:
     with dialogue.lock:
         row = turn(dialogue.agent, dialogue.tools, message.message, session, 'custom', 'web')
         pages = dict.fromkeys(hit['page'] for hits in row.retrievals for hit in hits)
-    book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
-    return ChatResponse(session=session, answer=row.output, status=row.status,
-                        trace_url=row.trace_url, book_pages=book_pages)
+        book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
+        result = ChatResponse(session=session, answer=row.output, status=row.status,
+                              trace_url=row.trace_url, book_pages=book_pages)
+        with closing(connect_dialogues()) as db, db:
+            saved = db.execute('SELECT transcript FROM dialogues WHERE session = ?', (session,)).fetchone()
+            transcript = (Transcript.model_validate_json(saved[0]) if saved
+                          else Transcript(session=session, title=message.message.strip()[:70]))
+            transcript.turns.append(ChatTurn(message=message.message, result=result))
+            db.execute("""INSERT INTO dialogues (session, history, transcript) VALUES (?, ?, ?)
+                          ON CONFLICT(session) DO UPDATE SET
+                              history = excluded.history, transcript = excluded.transcript""",
+                       (session, ModelMessagesTypeAdapter.dump_json(dialogue.agent.history),
+                        transcript.model_dump_json()))
+    return result
 
 
 @app.get('/document/{session}', response_class=FileResponse)

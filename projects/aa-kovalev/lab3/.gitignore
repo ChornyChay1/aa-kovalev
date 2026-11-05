@@ -3,3 +3,5 @@
 __pycache__/
 results/
 quizzes.sqlite3*
+
+dialogues.sqlite3*
