@@ -1,7 +1,6 @@
 """PydanticAI agent with a token-budgeted history processor."""
 import asyncio
 import json
-import re
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from functools import lru_cache
@@ -29,7 +28,6 @@ from tools.pydantic_tools import build_tools
 from services.prompts import system_prompt
 from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS
 
-QUIZ_ID = re.compile(r'(?<![\w-])[0-9a-f]{32}(?![\w-])')
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
 
 
@@ -57,14 +55,6 @@ def require_nonempty_answer(output: str) -> str:
 class Agent:
     def __init__(self, tools: BookTools) -> None:
         self.instructions, self.prompt_version = system_prompt()
-        self.instructions += (
-            '\nselect_quiz_for_edit — твой внутренний инструмент. Вызывай его сам, '
-            'не предлагай пользователю команды или код вызова. Перед update или delete '
-            'выбери ID и дождись результата выбора. Если пользователь просит удалить все '
-            'квизы из показанного списка, обрабатывай ID в порядке этого списка: выбери '
-            'один, удали его, дождись подтверждения и переходи к следующему. '
-            'При ошибке сообщи, что уже удалено и где остановился.'
-        )
         self.tools = tools
         self.on_event: Callable[[str, str], None] | None = None
         self.history: list[ModelMessage] = []
@@ -103,7 +93,7 @@ class Agent:
                             break
                 if after > INPUT_BUDGET:
                     raise ValueError('Текущая реплика с результатами инструментов слишком длинная. Уточните запрос.')
-                self.trimmed = self.stats.trimmed = self.tools.history_trimmed = True
+                self.trimmed = self.stats.trimmed = True
                 span.update(output={'tokens': after, 'messages_before': len(messages),
                                     'messages_after': len(compacted)})
                 messages = compacted
@@ -132,7 +122,6 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
-        self.tools.explicit_quiz_ids = set(QUIZ_ID.findall(question))
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
