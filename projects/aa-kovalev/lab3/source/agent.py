@@ -52,6 +52,12 @@ def starts_a_turn(message: ModelMessage) -> bool:
             and not any(isinstance(part, ToolReturnPart) for part in message.parts))
 
 
+def require_nonempty_answer(output: str) -> str:
+    if not output.strip():
+        raise ModelRetry('Продолжи задачу пользователя. Вызови нужный инструмент или дай итоговый ответ.')
+    return output
+
+
 class Agent:
     def __init__(self, tools: BookTools) -> None:
         self.tools = tools
@@ -86,6 +92,7 @@ class Agent:
                 ProcessHistory(self.fit_context),
             ],
             tools=[self.search_book, self.manage_quiz, self.list_quizes, self.get_quiz_info])
+        self.agent.output_validator(require_nonempty_answer)
 
     def search_book(self, query: str) -> ToolResult:
         """Найти материал в учебнике через RAG Лабы 2."""
