@@ -7,8 +7,6 @@ from settings import CONFIG, SYSTEM, SCHEMAS, BASE_URL, API_KEY
 
 
 class BookTool(Tool):
-    skip_forward_signature_validation = True
-    # Имя, схема и описание читаются из того же файла, что у своего агента.
     def __init__(self, schema, tools):
         spec = schema['function']
         self.name, self.description = spec['name'], spec['description']
@@ -17,8 +15,37 @@ class BookTool(Tool):
         self.tools = tools
         super().__init__()
 
-    def forward(self, **kwargs):
-        return self.tools.call(self.name, kwargs)
+
+class SearchBookTool(BookTool):
+    def forward(self, query: str):
+        return self.tools.call(self.name, {'query': query})
+
+
+class ManageQuizTool(BookTool):
+    def forward(self, action: str, quiz_id: str | None = None,
+                title: str | None = None, questions: list[dict] | None = None,
+                question_number: int | None = None, question: dict | None = None):
+        return self.tools.call(self.name, dict(
+            action=action, quiz_id=quiz_id, title=title, questions=questions,
+            question_number=question_number, question=question))
+
+
+class ListQuizesTool(BookTool):
+    def forward(self):
+        return self.tools.call(self.name, {})
+
+
+class GetQuizInfoTool(BookTool):
+    def forward(self, quiz_id: str):
+        return self.tools.call(self.name, {'quiz_id': quiz_id})
+
+
+TOOL_CLASSES = {
+    'search_book': SearchBookTool,
+    'manage_quiz': ManageQuizTool,
+    'list_quizes': ListQuizesTool,
+    'get_quiz_info': GetQuizInfoTool,
+}
 
 
 class ReadyAgent:
@@ -28,7 +55,7 @@ class ReadyAgent:
                 'http_client': httpx.Client(trust_env=False)},
             temperature=CONFIG['temperature'], max_tokens=CONFIG['max_output_tokens'])
         self.agent = ToolCallingAgent(model=self.model,
-            tools=[BookTool(schema, tools) for schema in SCHEMAS], instructions=SYSTEM,
+            tools=[TOOL_CLASSES[schema['function']['name']](schema, tools) for schema in SCHEMAS], instructions=SYSTEM,
             max_steps=CONFIG['max_steps'], verbosity_level=0)
         self.first = True
 

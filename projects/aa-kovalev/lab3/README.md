@@ -59,6 +59,22 @@ uv run --locked python source/evaluate.py results/ИМЯ_ПРОГОНА
 укажите фактическое число. В Langfuse покажите веб-диалог и длинный сценарий
 `--tasks L01 --agent custom` с событием `context-trim`.
 
+## Почему остался код приложения
+
+- PydanticAI управляет вызовами модели и инструментов. Сводка, запасное
+  скользящее окно и ограничения выдачи реализованы средствами Harness.
+- ProcessHistory задаёт местный бюджет, проверяет его после сокращения и
+  пишет отдельный спан Langfuse с числами до и после. Это нужно для отчёта:
+  порог стратегии Harness сам по себе не гарантирует итоговый размер.
+- Схемы в prompts/tools.json нужны готовому агенту smolagents. Его классы
+  Tool объявляют явные сигнатуры forward, которые проверяет smolagents.
+  У своего агента схемы строит PydanticAI из аннотаций функций.
+- Синхронная обёртка соединяет асинхронный PydanticAI с общим запуском двух
+  агентов и сохраняет контекст OpenTelemetry между вызовами. Хранилище
+  квизов, сессии веб-чата и критерии датасета относятся к приложению.
+
 Официальные примеры: [Ollama](https://pydantic.dev/docs/ai/models/ollama/),
 [ProcessHistory](https://pydantic.dev/docs/ai/capabilities/process-history/),
-[суммаризация истории](https://pydantic.dev/docs/ai/core-concepts/message-history/).
+[последний полный ход](https://pydantic.dev/docs/ai/core-concepts/message-history/),
+[Harness Compaction](https://pydantic.dev/docs/ai/harness/compaction/),
+[Tool Output Limits](https://pydantic.dev/docs/ai/harness/tool-output-limits/).
