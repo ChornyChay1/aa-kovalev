@@ -3,7 +3,7 @@
     "type": "function",
     "function": {
       "name": "search_book",
-      "description": "Найти материал в учебнике через RAG",
+      "description": "Ищет по запросу в учебнике «Укус Питона». Возвращает фрагменты текста и номера страниц. Для уточнения по ходу диалога укажи в поисковом запросе саму тему.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -22,7 +22,7 @@
     "type": "function",
     "function": {
       "name": "manage_quiz",
-      "description": "create: title и questions; update: quiz_id, question_number с 1 и question; delete: quiz_id",
+      "description": "Создаёт, изменяет или удаляет квиз. create принимает название и готовые вопросы с вариантами и номерами правильных ответов, возвращает ID и ссылку. update заменяет один вопрос по ID квиза и номеру вопроса. delete удаляет квиз по ID. Номера вопросов и вариантов начинаются с 1.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -114,7 +114,7 @@
     "type": "function",
     "function": {
       "name": "list_quizes",
-      "description": "Список квизов текущей сессии",
+      "description": "Возвращает список квизов текущего диалога с названиями, ID и ссылками. Позволяет найти ID квиза по названию.",
       "parameters": {
         "type": "object",
         "properties": {},
@@ -126,7 +126,7 @@
     "type": "function",
     "function": {
       "name": "get_quiz_info",
-      "description": "Получить вопросы и варианты ответа квиза",
+      "description": "Возвращает по ID название квиза, его вопросы и варианты ответов.",
       "parameters": {
         "type": "object",
         "properties": {

@@ -8,7 +8,7 @@ from typing import Literal
 
 import httpx2
 from langfuse import get_client
-from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits
+from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, Tool, UsageLimits
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
@@ -84,6 +84,8 @@ class Agent:
             ],
             fallback_on=(ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded),
             tokenizer=count_text)
+        descriptions = {spec['function']['name']: spec['function']['description'] for spec in SCHEMAS}
+        handlers = (self.search_book, self.manage_quiz, self.list_quizes, self.get_quiz_info)
         self.agent = PydanticAgent(
             model, instructions=SYSTEM, retries=2,
             capabilities=[
@@ -91,18 +93,16 @@ class Agent:
                 ToolOutputLimits(bands=[Band(TOOL_OUTPUT_CHARS, Truncate(max_chars=TOOL_OUTPUT_CHARS))]),
                 ProcessHistory(self.fit_context),
             ],
-            tools=[self.search_book, self.manage_quiz, self.list_quizes, self.get_quiz_info])
+            tools=[Tool(handler, description=descriptions[handler.__name__]) for handler in handlers])
         self.agent.output_validator(require_nonempty_answer)
 
     def search_book(self, query: str) -> ToolResult:
-        """Найти материал в учебнике через RAG Лабы 2."""
         return self.tools.call('search_book', {'query': query})
 
     def manage_quiz(self, action: Literal['create', 'update', 'delete'],
                     quiz_id: str | None = None, title: str | None = None,
                     questions: list[Question] | None = None,
                     question_number: int | None = None, question: Question | None = None) -> ToolResult:
-        """Создать квиз, заменить один вопрос или удалить квиз. Нумерация с 1."""
         if action == 'create' and (not title or not title.strip() or len(title) > 150
                                    or not questions or len(questions) > 10):
             raise ModelRetry(
@@ -115,11 +115,9 @@ class Agent:
         return self.tools.call('manage_quiz', args)
 
     def list_quizes(self) -> ToolResult:
-        """Получить ID, названия и ссылки квизов в этой сессии."""
         return self.tools.call('list_quizes', {})
 
     def get_quiz_info(self, quiz_id: str) -> ToolResult:
-        """Получить вопросы и варианты ответов квиза по ID."""
         return self.tools.call('get_quiz_info', {'quiz_id': quiz_id})
 
     def count(self, messages: list[ModelMessage]) -> int:
