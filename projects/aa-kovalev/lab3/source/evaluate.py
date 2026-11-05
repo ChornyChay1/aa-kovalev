@@ -1,4 +1,4 @@
-"""Метрики и таблица отчёта после ручной проверки review.csv."""
+"""Метрики и таблица отчёта после оценки ответов в Langfuse."""
 import argparse
 import csv
 import json
@@ -13,9 +13,6 @@ from services.observability import require_project
 
 from settings import LAB2  # Подключает модули Лабы 2.
 from retrieval_metrics import metrics, relevant_chunk_ids
-
-REVIEW_COLUMNS = ('success', 'error_category', 'comment')
-
 
 def average(values: Iterable[int | float | None]) -> float | None:
     present = [v for v in values if v is not None]
@@ -47,7 +44,11 @@ def score(lf: Langfuse, trace_id: str, name: str, value: int | float | None) -> 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('folder', type=Path)
+    parser.add_argument('--judge-score', default='QWEN-Evaluator',
+                        help='Generated Score Name в настройках оценщика Langfuse')
     args = parser.parse_args()
+    if args.judge_score == 'success':
+        parser.error('Используйте отдельное имя оценки судьи, например QWEN-Evaluator.')
     folder = args.folder
     meta = json.loads((folder / 'metadata.json').read_text(encoding='utf-8'))
     config = meta['config']
@@ -58,22 +59,36 @@ def main() -> None:
     if actual_rows != expected_rows or len(rows) != len(expected_rows):
         raise SystemExit('Прогон неполный или содержит дубликаты: сравнение не строится.')
     chunks = json.loads((folder / 'chunks.json').read_text(encoding='utf-8'))
-    with (folder / 'review.csv').open(encoding='utf-8-sig', newline='') as f:
-        review = {(r['agent'], r['task_id'], int(r['turn'])): r for r in csv.DictReader(f)}
-    for row in rows:
-        r = review[(row['agent'], row['task_id'], row['turn'])]
-        if r['success'] not in ('0', '1'):
-            raise SystemExit('Сначала заполните success (0/1) для всех реплик в review.csv.')
-        if r['success'] == '0' and (not r['error_category'] or not r['comment']):
-            raise SystemExit('Для ошибок заполните error_category и comment по трейсу.')
-        row.update({key: r[key] for key in REVIEW_COLUMNS})
-        row['success'] = int(row['success'])
-        expected = row['metadata']['expected_tools'][row['turn']]
-        called = {c['name'] for c in row['calls']}
-        row['tool_correctness'] = int(set(expected) <= called) if expected else None
-        row.update(retrieval_metrics(row, chunks, config['retrieval_k']))
     lf = get_client()
     require_project()
+    missing = []
+    for row in rows:
+        scores = lf.api.score_v_2.get(
+            trace_id=row['trace_id'], name=args.judge_score, source='EVAL', limit=2,
+        ).data
+        label = f"{row['agent']}/{row['task_id']}/{row['turn']}"
+        if not scores:
+            missing.append(label)
+            continue
+        if len(scores) != 1 or scores[0].value not in (0, 1):
+            raise SystemExit(f'{label}: нужна одна оценка судьи со значением 0 или 1.')
+        judge = scores[0]
+        expected = set(row['metadata']['expected_tools'][row['turn']])
+        called = {call['name'] for call in row['calls']}
+        completed = {call['name'] for call in row['calls'] if call.get('error') is None}
+        row['tool_correctness'] = int(expected <= called) if expected else None
+        row['success'] = int(row['status'] == 'success' and expected <= completed and judge.value == 1)
+        if row['status'] != 'success':
+            row['error_category'] = row['status']
+        elif not expected <= completed:
+            row['error_category'] = 'tool_failure'
+        else:
+            row['error_category'] = 'judge_rejected'
+        row['comment'] = judge.comment or 'См. ответ и вызовы в трейсе'
+        row.update(retrieval_metrics(row, chunks, config['retrieval_k']))
+    if missing:
+        raise SystemExit(f'Нет оценок {args.judge_score} для {len(missing)} реплик. '
+                         f'Дождитесь судьи и повторите команду. Примеры: {", ".join(missing[:8])}.')
     tasks = defaultdict(list)
     summaries, failures = [], []
     try:
@@ -85,7 +100,7 @@ def main() -> None:
                 score(lf, row['trace_id'], key, row.get(key))
             if row['turn'] in row['metadata']['history_dependent']:
                 score(lf, row['trace_id'], 'context_success', row['success'])
-                if row.get('trimmed') is not None:
+                if row.get('trimmed_before_answer') is not None:
                     score(lf, row['trace_id'], 'context_success_' + ('after_trim' if row['trimmed_before_answer'] else 'before_trim'), row['success'])
         # Полный диалог успешен, только если успешны все его проверяемые реплики.
         task_rows = []
@@ -99,8 +114,12 @@ def main() -> None:
                 'error': int(any(r['status'] != 'success' or r['tool_errors'] for r in turns)),
                 'max_steps': int(any(r['status'] == 'max_steps' for r in turns))}
             task_rows.append(item)
-            lf.create_score(session_id=turns[0]['session_id'], name='task_success', value=item['success'],
-                score_id=str(uuid5(NAMESPACE_URL, turns[0]['session_id'] + '/task_success')))
+            for name in ('success', 'cost_usd', 'latency_seconds', 'input_tokens',
+                         'output_tokens', 'error', 'max_steps'):
+                if item[name] is not None:
+                    session_id = turns[0]['session_id']
+                    lf.create_score(session_id=session_id, name=f'task_{name}', value=item[name],
+                        score_id=str(uuid5(NAMESPACE_URL, f'{session_id}/task_{name}')))
         for agent in sorted({r['agent'] for r in rows}):
             for kind in ('all', 'single', 'dialogue'):
                 for difficulty in ('all', 'easy', 'medium', 'hard'):

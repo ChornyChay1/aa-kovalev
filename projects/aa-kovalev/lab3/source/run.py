@@ -1,16 +1,16 @@
 """Прогон обоих агентов или интерактивная демонстрация своего."""
 import argparse
-import csv
 import json
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import uuid4
 from langfuse import get_client
 from langfuse.api.resources.dataset_run_items.types.create_dataset_run_item_request import (
     CreateDatasetRunItemRequest,
 )
-from services.observability import project_id, require_project
+from services.observability import require_project
+from load_dataset import publish_dataset
 from settings import ROOT, CONFIG
 from tools.book import BookTools
 from agents.custom import Agent
@@ -68,11 +68,7 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
               for point in points]
     (folder / 'chunks.json').write_text(json.dumps(chunks), encoding='utf-8')
     links: list[CreateDatasetRunItemRequest] = []
-    with (folder / 'runs.jsonl').open('w', encoding='utf-8') as output, \
-            (folder / 'review.csv').open('w', encoding='utf-8-sig', newline='') as review:
-        writer = csv.DictWriter(review, fieldnames=['agent', 'task_id', 'turn', 'input',
-            'expected_output', 'output', 'success', 'error_category', 'comment', 'trace_url'])
-        writer.writeheader()
+    with (folder / 'runs.jsonl').open('w', encoding='utf-8') as output:
         for name in names:
             for task in tasks:
                 session = f'{run_id}-{name}-{task["id"]}'
@@ -89,8 +85,6 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
                             ))
                         output.write(json.dumps(row, ensure_ascii=False) + '\n')
                         output.flush()
-                        writer.writerow({k: row[k] for k in writer.fieldnames if k in row})
-                        review.flush()
                         print(name, task['id'], i, row['status'], flush=True)
     print('Результаты:', folder)
     if links:
@@ -99,27 +93,6 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
         for link in links:
             lf.api.dataset_run_items.create(request=link)
         print('Прогоны опубликованы в датасете Langfuse:', DATASET_NAME)
-
-
-def publish_dataset(tasks: list[dict]) -> dict[tuple[str, int], str]:
-    lf = get_client()
-    dataset = lf.create_dataset(name=DATASET_NAME, description='Проверяемые реплики Лабы 3')
-    items = {}
-    for task in tasks:
-        for i, question in enumerate(task['input']):
-            expected = task['expected_output'][i]
-            item_input = {'question': question, 'previous_user_turns': task['input'][:i]}
-            identity = json.dumps([project_id(), dataset.id, task['id'], i, item_input, expected],
-                                  ensure_ascii=False, sort_keys=True)
-            item = lf.create_dataset_item(
-                dataset_name=DATASET_NAME, id=str(uuid5(NAMESPACE_URL, identity)),
-                input=item_input, expected_output=expected,
-                metadata={'task_id': task['id'], 'turn': i, 'type': task['metadata']['type'],
-                          'difficulty': task['metadata']['difficulty'],
-                          'history_dependent': i in task['metadata']['history_dependent']},
-            )
-            items[task['id'], i] = item.id
-    return items
 
 
 if __name__ == '__main__':
