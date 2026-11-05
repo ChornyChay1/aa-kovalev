@@ -21,7 +21,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from constants import TOOL_OUTPUT_CHARS
+from constants import CREATE, DELETE, MANAGE_QUIZ, TOOL_OUTPUT_CHARS, TURN_RESERVE_TOKENS, UPDATE
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
@@ -44,6 +44,10 @@ def starts_a_turn(message: ModelMessage) -> bool:
     return (isinstance(message, ModelRequest)
             and any(isinstance(part, UserPromptPart) for part in message.parts)
             and not any(isinstance(part, ToolReturnPart) for part in message.parts))
+
+
+class ContextBudgetExceeded(ValueError):
+    pass
 
 
 def require_nonempty_answer(output: str) -> str:
@@ -80,23 +84,29 @@ class Agent:
     async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
         before = self.count(messages)
         after = before
-        if before > INPUT_BUDGET:
-            with get_client().start_as_current_observation(name='context-trim',
-                    input={'tokens': before, 'budget': INPUT_BUDGET}) as span:
-                # Drop only complete older turns, including their tool calls and results.
-                compacted = messages
-                for i in range(1, len(messages)):
-                    if starts_a_turn(messages[i]):
-                        compacted = messages[i:]
-                        after = self.count(compacted)
-                        if after <= INPUT_BUDGET:
-                            break
-                if after > INPUT_BUDGET:
-                    raise ValueError('Текущая реплика с результатами инструментов слишком длинная. Уточните запрос.')
-                self.trimmed = self.stats.trimmed = True
-                span.update(output={'tokens': after, 'messages_before': len(messages),
-                                    'messages_after': len(compacted)})
-                messages = compacted
+        budget = INPUT_BUDGET
+        if self.first_request:
+            self.first_request = False
+            budget -= TURN_RESERVE_TOKENS
+            if before > budget:
+                with get_client().start_as_current_observation(name='context-trim',
+                        input={'tokens': before, 'budget': budget,
+                               'turn_reserve_tokens': TURN_RESERVE_TOKENS}) as span:
+                    original_count = len(messages)
+                    for i in range(1, original_count):
+                        if starts_a_turn(messages[i]):
+                            remaining = messages[i:]
+                            remaining_tokens = self.count(remaining)
+                            if remaining_tokens <= budget:
+                                messages = remaining
+                                after = remaining_tokens
+                                self.trimmed = self.stats.trimmed = True
+                                break
+                    span.update(output={'tokens': after,
+                                        'messages_before': original_count,
+                                        'messages_after': len(messages)})
+        if after > budget:
+            raise ContextBudgetExceeded('Не хватило места в контексте для продолжения хода.')
         self.stats.max_context = max(self.stats.max_context or 0, after)
         return messages
 
@@ -122,6 +132,7 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
+        self.first_request = True
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
@@ -135,6 +146,16 @@ class Agent:
             self.history = result.all_messages()
             self.add_usage(result.usage)
             answer = result.output
+        except ContextBudgetExceeded as error:
+            self.stats.status = 'error'
+            actions = {CREATE: 'Создан квиз', UPDATE: 'Изменён квиз', DELETE: 'Удалён квиз'}
+            completed = [
+                f"{actions[call.arguments['action']]} `{call.result['quiz_id']}`."
+                for call in self.tools.calls
+                if call.name == MANAGE_QUIZ and call.error is None
+                and isinstance(call.result, dict) and 'quiz_id' in call.result
+            ]
+            answer = '\n'.join([str(error), *completed])
         except Exception as error:
             name = type(error).__name__.lower()
             self.stats.status = ('max_steps' if name == 'usagelimitexceeded'

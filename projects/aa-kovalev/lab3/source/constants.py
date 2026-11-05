@@ -20,6 +20,7 @@ DATASET_NAME = 'lab3-agent-turns'
 MAX_QUIZ_TITLE = 150
 MAX_QUESTIONS = 10
 MAX_OPTIONS = 5
+TURN_RESERVE_TOKENS = 2048
 TOOL_OUTPUT_CHARS = 1400
 QUIZ_LINK = re.compile(
     r'(?P<label>\[[^\]\n]+\])\((?:https?://[^/\s)]+)?(?P<path>/quiz/[^\s)]+)\)'
