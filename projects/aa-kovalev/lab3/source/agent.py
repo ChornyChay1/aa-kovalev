@@ -8,7 +8,7 @@ from typing import Literal
 
 import httpx2
 from langfuse import get_client
-from pydantic_ai import Agent as PydanticAgent, RunContext, UsageLimits
+from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
@@ -96,6 +96,12 @@ class Agent:
                     questions: list[Question] | None = None,
                     question_number: int | None = None, question: Question | None = None) -> ToolResult:
         """Создать квиз, заменить один вопрос или удалить квиз. Нумерация с 1."""
+        if action == 'create' and (not title or not title.strip() or len(title) > 150
+                                   or not questions or len(questions) > 10):
+            raise ModelRetry(
+                'Для create придумай непустой title до 150 символов и передай questions '
+                'с 1–10 полностью заполненными вопросами. Соблюдай количество из запроса.'
+            )
         args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
                     questions=[q.model_dump() for q in questions] if questions else None,
                     question=question.model_dump() if question else None)
@@ -110,7 +116,7 @@ class Agent:
         return self.tools.call('get_quiz_info', {'quiz_id': quiz_id})
 
     def count(self, messages: list[ModelMessage]) -> int:
-        payload = ModelMessagesTypeAdapter.dump_json(messages).decode()
+        payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
         return count_text(SYSTEM + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
 
     async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
