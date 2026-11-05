@@ -1,7 +1,7 @@
 """Адаптеры общих инструментов для PydanticAI."""
 from pydantic_ai import ModelRetry, Tool
 
-from constants import CREATE, GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, MAX_QUESTIONS, MAX_QUIZ_TITLE, SEARCH_BOOK, QuizAction
+from constants import CREATE, DELETE, GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, MAX_QUESTIONS, MAX_QUIZ_TITLE, SEARCH_BOOK, QuizAction
 from models.domain import ToolResult
 from models.schemas import Question
 from services.quizzes import get_quiz
@@ -40,13 +40,16 @@ def build_tools(tools: BookTools) -> list[Tool]:
             )
         if action != CREATE:
             if tools.edit_quiz_id is None:
-                raise ModelRetry('Сначала выбери целевой квиз через select_quiz_for_edit.')
+                raise ModelRetry('Сам вызови select_quiz_for_edit с ID целевого квиза, затем повтори операцию.')
             if quiz_id != tools.edit_quiz_id:
                 raise ModelRetry(f'Целевой квиз на этот ход: {tools.edit_quiz_id}. Передай этот quiz_id.')
         args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
                     questions=[q.model_dump() for q in questions] if questions else None,
                     question=question.model_dump() if question else None, option=option, option_number=option_number)
-        return tools.call(MANAGE_QUIZ, args)
+        result = tools.call(MANAGE_QUIZ, args)
+        if action == DELETE and isinstance(result, dict) and result.get('deleted') is True:
+            tools.edit_quiz_id = None
+        return result
 
     def list_quizes() -> ToolResult:
         return tools.call(LIST_QUIZES, {})
@@ -59,7 +62,7 @@ def build_tools(tools: BookTools) -> list[Tool]:
                     ' Перед update или delete сначала вызови select_quiz_for_edit.'}
     return [Tool(handler, description=descriptions[handler.__name__]) for handler in handlers] + [
         Tool(select_quiz_for_edit, description=(
-            'Перед правкой или удалением закрепи полный ID квиза, который указал пользователь. '
+            'Вызови сам перед правкой или удалением, чтобы закрепить полный ID целевого квиза. '
             'Если запрос ссылается на историю, выбери квиз по этой истории. '
             'При неоднозначности попроси пользователя уточнить цель.'
         )),

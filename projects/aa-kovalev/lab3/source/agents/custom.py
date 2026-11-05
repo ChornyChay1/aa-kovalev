@@ -57,6 +57,14 @@ def require_nonempty_answer(output: str) -> str:
 class Agent:
     def __init__(self, tools: BookTools) -> None:
         self.instructions, self.prompt_version = system_prompt()
+        self.instructions += (
+            '\nselect_quiz_for_edit — твой внутренний инструмент. Вызывай его сам, '
+            'не предлагай пользователю команды или код вызова. Перед update или delete '
+            'выбери ID и дождись результата выбора. Если пользователь просит удалить все '
+            'квизы из показанного списка, обрабатывай ID в порядке этого списка: выбери '
+            'один, удали его, дождись подтверждения и переходи к следующему. '
+            'При ошибке сообщи, что уже удалено и где остановился.'
+        )
         self.tools = tools
         self.on_event: Callable[[str, str], None] | None = None
         self.history: list[ModelMessage] = []
