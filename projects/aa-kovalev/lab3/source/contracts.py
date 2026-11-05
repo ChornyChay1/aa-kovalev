@@ -39,6 +39,7 @@ class TurnResult(AgentStats, TurnMetrics):
     calls: list[ToolCall]
     retrievals: list[list[SearchHit]]
     trace_id: str
+    observation_id: str
     trace_url: str | None
     session_id: str
 

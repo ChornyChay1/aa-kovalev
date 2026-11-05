@@ -16,12 +16,11 @@ def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
     tools.session = session
     started = perf_counter()
     tags = [agent_name, CONFIG['version'], CONFIG['model'], run_id]
-    with lf.start_as_current_observation(name='user-turn', input=question) as span:
+    trace_name = f'{agent_name}-turn'
+    with lf.start_as_current_observation(name=trace_name, input=question) as span:
         with propagate_attributes(user_id=CONFIG['user_id'], session_id=session,
-                tags=tags,
+                tags=tags, trace_name=trace_name, version=CONFIG['version'],
                 metadata={'run_id': run_id, 'agent': agent_name}):
-            span.update_trace(input=question, user_id=CONFIG['user_id'], session_id=session,
-                              tags=tags)
             try:
                 answer, stats = agent.answer(question)
             except Exception as error:
@@ -47,9 +46,11 @@ def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
                 **metrics.model_dump(),
             }
             span.update(output=answer, metadata={**metadata, 'config': CONFIG})
-            span.update_trace(output=answer)
+            # Trace-level I/O is also used by older hosted evaluators.
+            set_trace_io = getattr(span, 'set_trace_io', None) or span.update_trace
+            set_trace_io(input=question, output=answer)
             return TurnResult(
                 **metadata, output=answer, calls=tools.calls.copy(),
-                retrievals=tools.retrievals.copy(), trace_id=span.trace_id,
+                retrievals=tools.retrievals.copy(), trace_id=span.trace_id, observation_id=span.id,
                 trace_url=trace_url(span.trace_id), session_id=session,
             )

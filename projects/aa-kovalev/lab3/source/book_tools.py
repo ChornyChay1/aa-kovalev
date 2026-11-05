@@ -53,7 +53,11 @@ class BookTools:
         if name == 'manage_quiz':
             return manage_quiz(self.session, **arguments)
         if name == 'list_quizes':
-            return [dict(quiz) for quiz in list_quizes(self.session)]
+            quizzes = list_quizes(self.session)
+            result: ToolArguments = {'quizzes': quizzes, 'count': len(quizzes)}
+            if not quizzes:
+                result['message'] = 'В текущем диалоге пока нет квизов.'
+            return result
         if name == 'get_quiz_info':
             return get_quiz_info(self.session, **arguments)
         raise ValueError('Неизвестный инструмент: ' + name)
