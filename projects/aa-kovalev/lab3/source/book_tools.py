@@ -1,6 +1,5 @@
 """Общие инструменты агентов и их трассировка."""
 import json
-import sys
 from pathlib import Path
 from time import monotonic
 
@@ -10,7 +9,6 @@ from langfuse import get_client
 from settings import LAB2, CONFIG
 from quizzes import manage_quiz, list_quizes, get_quiz_info
 
-sys.path.append(str(LAB2 / 'source'))
 from rag import RAG
 
 class BookTools:

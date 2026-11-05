@@ -10,6 +10,9 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 from langfuse import Langfuse, get_client, propagate_attributes
 
+from settings import LAB2  # Подключает модули Лабы 2.
+from retrieval_metrics import metrics, relevant_chunk_ids
+
 REVIEW_COLUMNS = ('success', 'error_category', 'comment')
 
 
@@ -22,20 +25,16 @@ def retrieval_metrics(row: dict[str, Any], chunks: list[dict[str, Any]], k: int)
     pages = row['metadata']['relevant_pages'][row['turn']]
     if not pages:
         return {}
-    relevant = {c['id'] for c in chunks if c['source_id'] == row['metadata']['source_id']
-                and any(c['start_page'] <= p <= c['end_page'] for p in pages)}
+    relevant = relevant_chunk_ids(chunks, row['metadata']['source_id'], pages)
     if not relevant:
         raise ValueError(f'В индексе нет эталонных чанков: {row["task_id"]}, {pages}')
     # Как в Лабе 2: фиксированный k и эталоны по PDF-страницам.
     # При нескольких запросах — среднее по запросам; без поиска — нули.
-    results = []
-    for hits in row['retrievals']:
-        found = [h['id'] in relevant for h in hits[:k]]
-        results.append({'recall@k': sum(found) / len(relevant),
-                        'precision@k': sum(found) / k,
-                        'mrr': next((1 / (i + 1) for i, yes in enumerate(found) if yes), 0)})
-    return {name: mean(r[name] for r in results) if results else 0
-            for name in ('recall@k', 'precision@k', 'mrr')}
+    results = [metrics(hits, relevant, k) for hits in row['retrievals']]
+    return {
+        name: mean(result[key] for result in results) if results else 0
+        for name, key in (('recall@k', 'recall'), ('precision@k', 'precision'), ('mrr', 'mrr'))
+    }
 
 
 def score(lf: Langfuse, trace_id: str, name: str, value: int | float | None) -> None:

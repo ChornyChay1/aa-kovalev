@@ -1,11 +1,13 @@
 """Общие настройки; пути не зависят от рабочей директории."""
 import json
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 LAB2 = ROOT.parent / 'lab2'
+sys.path.append(str(LAB2 / 'source'))
 load_dotenv(ROOT / '.env')
 CONFIG = json.loads((ROOT / 'config.json').read_text(encoding='utf-8'))
 SYSTEM = (ROOT / 'prompts/system.txt').read_text(encoding='utf-8')

@@ -11,16 +11,11 @@ from common import CONFIG, ROOT, ARTIFACTS, read, write, settings
 from build_index import build
 from load_to_vector_store import load
 from rag import RAG
+from retrieval_metrics import metrics, relevant_chunk_ids
 
 
 VARIANTS = list(CONFIG['variants'])
 K_VALUES = (5, 10)
-
-def metrics(hits, relevant, k):
-    found = [hit['id'] in relevant for hit in hits[:k]]
-    return {'recall': sum(found) / len(relevant), 'precision': sum(found) / k,
-            'mrr': next((1 / (i + 1) for i, yes in enumerate(found) if yes), 0)}
-
 
 def evaluate(args):
     questions = read(ROOT / 'questions.json')
@@ -40,9 +35,7 @@ def evaluate(args):
                 write(output / 'metadata.json', meta)
                 chunks = [point['payload'] for point in read(folder / 'points.json')]
                 relevant_chunks = {
-                    q['id']: {c['id'] for c in chunks
-                              if c['source_id'] == q['source_id']
-                              and any(c['start_page'] <= page <= c['end_page'] for page in q['pages'])}
+                    q['id']: relevant_chunk_ids(chunks, q['source_id'], q['pages'])
                     for q in questions
                 }
                 rag = RAG(folder)
