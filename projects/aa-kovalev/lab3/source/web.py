@@ -1,35 +1,81 @@
 """Local quiz forms and chat API."""
-from contextlib import asynccontextmanager
+from collections.abc import Iterator
+from contextlib import ExitStack, asynccontextmanager
+from dataclasses import dataclass
 from html import escape
 from threading import Lock
 from uuid import uuid4
 
+from dishka import Container, Provider, Scope, make_container, provide
+from dishka.integrations.fastapi import FastapiProvider, FromDishka, inject_sync, setup_dishka
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from langfuse import get_client
 from pydantic import BaseModel, Field
 
 from agent import Agent
 from book_tools import BookTools
+from dependencies import LabProvider
 from quizzes import get_quiz
 from run import turn
 from settings import ROOT
 
-sessions = {}
-sessions_lock = Lock()
+
+@dataclass
+class Dialogue:
+    agent: Agent
+    tools: BookTools
+    lock: Lock
+
+
+class ChatSessions:
+    def __init__(self, container: Container, scopes: ExitStack):
+        self.container = container
+        self.scopes = scopes
+        self.dialogues: dict[str, Dialogue] = {}
+        self.lock = Lock()
+
+    def get(self, session: str | None) -> tuple[str, Dialogue]:
+        with self.lock:
+            if session is not None:
+                if session not in self.dialogues:
+                    raise HTTPException(404, 'Сессия завершилась. Начните новый диалог.')
+                return session, self.dialogues[session]
+            session = uuid4().hex
+            # Register a scope only after all resources were created successfully.
+            with ExitStack() as opening:
+                scope = opening.enter_context(self.container(scope=Scope.REQUEST))
+                try:
+                    dialogue = Dialogue(scope.get(Agent), scope.get(BookTools), Lock())
+                except FileNotFoundError as error:
+                    raise HTTPException(503, 'Подготовьте активный индекс Лабы 2.') from error
+                self.scopes.enter_context(opening.pop_all())
+            self.dialogues[session] = dialogue
+            return session, dialogue
+
+
+class WebProvider(Provider):
+    @provide(scope=Scope.APP)
+    def chat_sessions(self, container: Container) -> Iterator[ChatSessions]:
+        with ExitStack() as scopes:
+            yield ChatSessions(container, scopes)
 
 
 @asynccontextmanager
-async def lifespan(app):
-    yield
-    for agent, tools, _ in sessions.values():
-        agent.close()
-        tools.close()
-    sessions.clear()
-    get_client().flush()
+async def lifespan(app: FastAPI):
+    try:
+        yield
+    finally:
+        try:
+            # Agent.close() runs its own asyncio.Runner.
+            await run_in_threadpool(app.state.dishka_container.close)
+        finally:
+            get_client().flush()
 
 
 app = FastAPI(lifespan=lifespan)
+setup_dishka(container=make_container(LabProvider(), WebProvider(), FastapiProvider(), lock_factory=Lock), app=app)
 
 
 class Chat(BaseModel):
@@ -47,22 +93,13 @@ def home():
 
 
 @app.post('/api/chat')
-def chat(request: Chat):
-    with sessions_lock:
-        session = request.session or uuid4().hex
-        if request.session and session not in sessions:
-            raise HTTPException(404, 'Сессия завершилась. Начните новый диалог.')
-        if session not in sessions:
-            try:
-                tools = BookTools()
-            except FileNotFoundError as error:
-                raise HTTPException(503, 'Подготовьте активный индекс Лабы 2.') from error
-            sessions[session] = Agent(tools), tools, Lock()
-        agent, tools, lock = sessions[session]
-    with lock:
-        row = turn(agent, tools, request.message, session, 'custom', 'web')
-        return {'session': session, 'answer': row['output'], 'status': row['status'],
-                'trace_url': row['trace_url']}
+@inject_sync
+def chat(request: Chat, sessions: FromDishka[ChatSessions]):
+    session, dialogue = sessions.get(request.session)
+    with dialogue.lock:
+        row = turn(dialogue.agent, dialogue.tools, request.message, session, 'custom', 'web')
+    return {'session': session, 'answer': row['output'], 'status': row['status'],
+            'trace_url': row['trace_url']}
 
 
 def quiz_or_404(quiz_id):
