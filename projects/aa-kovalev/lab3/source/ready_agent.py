@@ -29,10 +29,11 @@ class SearchBookTool(BookTool):
 class ManageQuizTool(BookTool):
     def forward(self, action: str, quiz_id: str | None = None,
                 title: str | None = None, questions: list[dict[str, Any]] | None = None,
-                question_number: int | None = None, question: dict[str, Any] | None = None) -> ToolResult:
+                question_number: int | None = None, question: dict[str, Any] | None = None,
+                option: str | None = None) -> ToolResult:
         return self.tools.call(self.name, dict(
             action=action, quiz_id=quiz_id, title=title, questions=questions,
-            question_number=question_number, question=question))
+            question_number=question_number, question=question, option=option))
 
 
 class ListQuizesTool(BookTool):
@@ -41,8 +42,8 @@ class ListQuizesTool(BookTool):
 
 
 class GetQuizInfoTool(BookTool):
-    def forward(self, quiz_id: str) -> ToolResult:
-        return self.tools.call(self.name, {'quiz_id': quiz_id})
+    def forward(self, quiz_id: str, question_number: int | None = None) -> ToolResult:
+        return self.tools.call(self.name, dict(quiz_id=quiz_id, question_number=question_number))
 
 
 TOOL_CLASSES = {

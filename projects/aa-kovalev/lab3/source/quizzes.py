@@ -72,12 +72,23 @@ def get_quiz(quiz_id: str, session: str | None = None) -> Quiz:
     return {**public(row), 'questions': json.loads(row['questions'])}
 
 
-def get_quiz_info(session: str, quiz_id: str) -> dict[str, Any]:
+def get_quiz_info(session: str, quiz_id: str, question_number: int | None = None) -> dict[str, Any]:
     quiz = get_quiz(quiz_id, session)
+    questions = quiz['questions']
+    if question_number is not None:
+        question = questions[question_index(question_number, len(questions))]
+        return {'quiz_id': quiz_id, 'title': quiz['title'], 'question_number': question_number,
+                'question': {'text': question['text'], 'options': question['options']}}
     return {
         **quiz,
-        'questions': [{key: value for key, value in q.items() if key != 'correct'} for q in quiz['questions']],
+        'questions': [{'text': q['text'], 'options': q['options']} for q in questions],
     }
+
+
+def question_index(number: int | None, count: int) -> int:
+    if type(number) is not int or not 1 <= number <= count:
+        raise ValueError('Номер вопроса вне диапазона')
+    return number - 1
 
 
 def list_quizes(session: str) -> list[QuizSummary]:
@@ -89,7 +100,7 @@ def list_quizes(session: str) -> list[QuizSummary]:
 def manage_quiz(
     session: str, action: str, quiz_id: str | None = None, title: str | None = None,
     questions: list[dict[str, Any]] | None = None, question_number: int | None = None,
-    question: dict[str, Any] | None = None,
+    question: dict[str, Any] | None = None, option: str | None = None,
 ) -> dict[str, Any]:
     with closing(connect()) as db, db:
         if action == 'create':
@@ -112,8 +123,16 @@ def manage_quiz(
         if action != 'update':
             raise ValueError('Допустимые действия: create, update, delete')
         data = json.loads(row['questions'])
-        if type(question_number) is not int or not 1 <= question_number <= len(data):
-            raise ValueError('Номер вопроса вне диапазона')
-        data[question_number - 1] = Question.model_validate(question).model_dump()
+        index = question_index(question_number, len(data))
+        if option is not None:
+            if question is not None:
+                raise ValueError('Передайте либо новый вариант, либо вопрос целиком')
+            question = data[index]
+            if len(question['options']) >= 5:
+                raise ValueError('В вопросе уже пять вариантов')
+            if option.strip().casefold() in {text.strip().casefold() for text in question['options']}:
+                raise ValueError('Такой вариант уже есть')
+            question['options'].append(option)
+        data[index] = Question.model_validate(question).model_dump()
         db.execute('UPDATE quizzes SET questions = ? WHERE id = ?', (json.dumps(data), quiz_id))
         return {**public(row), 'updated_question': question_number}

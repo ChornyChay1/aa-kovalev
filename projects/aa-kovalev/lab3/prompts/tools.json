@@ -22,7 +22,7 @@
     "type": "function",
     "function": {
       "name": "manage_quiz",
-      "description": "Создаёт, изменяет или удаляет квиз. create принимает название и готовые вопросы с вариантами и номерами правильных ответов, возвращает ID и ссылку. update заменяет один вопрос по ID квиза и номеру вопроса. delete удаляет квиз по ID. Номера вопросов и вариантов начинаются с 1.",
+      "description": "Создаёт, изменяет или удаляет квиз. create принимает название и готовые вопросы с вариантами и номерами правильных ответов, возвращает ID и ссылку. update по ID квиза и номеру вопроса заменяет вопрос через question или добавляет вариант в конец через option, сохраняя правильный ответ. delete удаляет квиз по ID. Номера вопросов и вариантов начинаются с 1.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -102,6 +102,11 @@
               "correct"
             ],
             "nullable": true
+          },
+          "option": {
+            "description": "Текст нового варианта для update. Передавай вместо question.",
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
@@ -126,13 +131,18 @@
     "type": "function",
     "function": {
       "name": "get_quiz_info",
-      "description": "Возвращает по ID название квиза, его вопросы и варианты ответов.",
+      "description": "Возвращает вопросы квиза и варианты. Передай question_number, чтобы получить только нужный вопрос.",
       "parameters": {
         "type": "object",
         "properties": {
           "quiz_id": {
             "description": "quiz_id",
             "type": "string"
+          },
+          "question_number": {
+            "description": "Номер вопроса с 1. Без номера возвращаются все вопросы.",
+            "type": "integer",
+            "nullable": true
           }
         },
         "required": [

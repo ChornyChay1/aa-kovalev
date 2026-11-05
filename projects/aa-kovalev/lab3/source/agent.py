@@ -105,7 +105,8 @@ class Agent:
     def manage_quiz(self, action: Literal['create', 'update', 'delete'],
                     quiz_id: str | None = None, title: str | None = None,
                     questions: list[Question] | None = None,
-                    question_number: int | None = None, question: Question | None = None) -> ToolResult:
+                    question_number: int | None = None, question: Question | None = None,
+                    option: str | None = None) -> ToolResult:
         if action == 'create' and (not title or not title.strip() or len(title) > 150
                                    or not questions or len(questions) > 10):
             raise ModelRetry(
@@ -114,14 +115,14 @@ class Agent:
             )
         args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
                     questions=[q.model_dump() for q in questions] if questions else None,
-                    question=question.model_dump() if question else None)
+                    question=question.model_dump() if question else None, option=option)
         return self.tools.call('manage_quiz', args)
 
     def list_quizes(self) -> ToolResult:
         return self.tools.call('list_quizes', {})
 
-    def get_quiz_info(self, quiz_id: str) -> ToolResult:
-        return self.tools.call('get_quiz_info', {'quiz_id': quiz_id})
+    def get_quiz_info(self, quiz_id: str, question_number: int | None = None) -> ToolResult:
+        return self.tools.call('get_quiz_info', dict(quiz_id=quiz_id, question_number=question_number))
 
     def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
