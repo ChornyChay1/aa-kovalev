@@ -97,8 +97,8 @@ def chat(request: Request, message: Chat) -> ChatResponse:
     session, dialogue = sessions.get(message.session)
     with dialogue.lock:
         row = turn(dialogue.agent, dialogue.tools, message.message, session, 'custom', 'web')
-    return ChatResponse(session=session, answer=row['output'], status=row['status'],
-                        trace_url=row['trace_url'])
+    return ChatResponse(session=session, answer=row.output, status=row.status,
+                        trace_url=row.trace_url)
 
 
 def quiz_or_404(quiz_id: str) -> Quiz:

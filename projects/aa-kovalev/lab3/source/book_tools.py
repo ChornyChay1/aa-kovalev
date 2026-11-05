@@ -33,15 +33,15 @@ class BookTools:
     def call(self, name: str, arguments: ToolArguments) -> ToolResult:
         lf = get_client()
         with lf.start_as_current_observation(name=name, as_type='tool', input=arguments) as span:
-            record: ToolCall = {'name': name, 'arguments': arguments}
+            record = ToolCall(name=name, arguments=arguments)
             self.calls.append(record)
             try:
                 result = self.dispatch(name, arguments)
-                record['result'] = result
+                record.result = result
                 span.update(output=result)
                 return result
             except Exception as error:
-                record['error'] = str(error)
+                record.error = str(error)
                 result = {'error': str(error), 'hint': 'Исправь аргументы или используй другой инструмент.'}
                 span.update(output=result, level='ERROR', status_message=str(error))
                 return result

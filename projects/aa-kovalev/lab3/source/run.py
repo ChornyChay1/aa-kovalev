@@ -42,7 +42,7 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
         with closing(AGENTS[agent_name](tools)) as agent:
             while question := input('Вы (пустая строка — выход): ').strip():
                 reply = turn(agent, tools, question, run_id, agent_name, run_id)
-                print(reply['output'], '\n', reply['trace_url'])
+                print(reply.output, '\n', reply.trace_url)
         return
     tasks = json.loads((ROOT / 'tasks.json').read_text(encoding='utf-8'))
     if args.tasks:
@@ -68,7 +68,7 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
                 session = f'{run_id}-{name}-{task["id"]}'
                 with closing(AGENTS[name](tools)) as agent:
                     for i, question in enumerate(task['input']):
-                        row = dict(turn(agent, tools, question, session, name, run_id))
+                        row = turn(agent, tools, question, session, name, run_id).model_dump(exclude_unset=True)
                         row['quizzes'] = [get_quiz(quiz['quiz_id'], session) for quiz in list_quizes(session)]
                         row.update(agent=name, task_id=task['id'], turn=i, input=question,
                             expected_output=task['expected_output'][i], metadata=task['metadata'])

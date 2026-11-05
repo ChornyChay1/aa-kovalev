@@ -77,13 +77,12 @@ class ReadyAgent:
         steps = self.agent.memory.steps[start:]
         usage = [s.token_usage for s in steps if isinstance(s, ActionStep)]
         complete = all(u is not None for u in usage)
-        return output, {
-            'input_tokens': sum(u.input_tokens for u in usage) if complete else None,
-            'output_tokens': sum(u.output_tokens for u in usage) if complete else None,
-            'steps': sum(isinstance(s, ActionStep) for s in steps),
-            'status': status,
-            'trimmed': None, 'max_context': None, 'context_tokens': None,
-        }
+        return output, AgentStats(
+            input_tokens=sum(u.input_tokens for u in usage if u is not None) if complete else None,
+            output_tokens=sum(u.output_tokens for u in usage if u is not None) if complete else None,
+            steps=len(usage), status=status,
+            trimmed=None, max_context=None, context_tokens=None,
+        )
 
     def close(self) -> None:
         self.model.client.close()

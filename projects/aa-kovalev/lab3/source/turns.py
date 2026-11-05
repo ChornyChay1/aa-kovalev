@@ -4,7 +4,7 @@ from time import perf_counter
 from langfuse import get_client, propagate_attributes
 
 from book_tools import BookTools
-from contracts import DialogueAgent, TurnMetrics, TurnResult
+from contracts import AgentStats, DialogueAgent, TurnMetrics, TurnResult
 from settings import CONFIG, cost
 
 
@@ -24,27 +24,31 @@ def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
             try:
                 answer, stats = agent.answer(question)
             except Exception as error:
-                answer, stats = str(error), {'status': 'error', 'input_tokens': None, 'output_tokens': None}
+                answer = str(error)
+                stats = AgentStats(status='error', input_tokens=None, output_tokens=None)
             latency = perf_counter() - started
-            tool_errors = sum('error' in call for call in tools.calls)
-            input_tokens = stats['input_tokens']
-            output_tokens = stats['output_tokens']
+            tool_errors = sum(call.error is not None for call in tools.calls)
+            input_tokens = stats.input_tokens
+            output_tokens = stats.output_tokens
             cost_usd = None
             if input_tokens is not None and output_tokens is not None:
                 cost_usd = cost(input_tokens, output_tokens)
-            if stats['status'] != 'success':
-                span.update(level='WARNING', status_message=stats['status'])
+            if stats.status != 'success':
+                span.update(level='WARNING', status_message=stats.status)
             elif tool_errors:
                 span.update(level='WARNING', status_message='tool_errors')
-            metrics: TurnMetrics = {
-                'latency_seconds': latency, 'tool_calls': len(tools.calls),
-                'tool_errors': tool_errors, 'cost_usd': cost_usd,
+            metrics = TurnMetrics(
+                latency_seconds=latency, tool_calls=len(tools.calls),
+                tool_errors=tool_errors, cost_usd=cost_usd,
+            )
+            metadata = {
+                **stats.model_dump(exclude_unset=True),
+                **metrics.model_dump(),
             }
-            span.update(output=answer, metadata={**stats, **metrics, 'config': CONFIG})
+            span.update(output=answer, metadata={**metadata, 'config': CONFIG})
             span.update_trace(output=answer)
-            return {
-                **stats, **metrics, 'output': answer,
-                'calls': tools.calls.copy(), 'retrievals': tools.retrievals.copy(),
-                'trace_id': span.trace_id, 'trace_url': lf.get_trace_url(trace_id=span.trace_id),
-                'session_id': session,
-            }
+            return TurnResult(
+                **metadata, output=answer, calls=tools.calls.copy(),
+                retrievals=tools.retrievals.copy(), trace_id=span.trace_id,
+                trace_url=lf.get_trace_url(trace_id=span.trace_id), session_id=session,
+            )

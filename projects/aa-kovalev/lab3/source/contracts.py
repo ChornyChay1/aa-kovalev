@@ -1,5 +1,7 @@
 """Типы на общей границе агента, инструментов и трассировки."""
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from typing import Any, Literal, Protocol
+
+from pydantic import BaseModel
 
 ToolArguments = dict[str, Any]  # JSON, полученный от модели.
 SearchHit = dict[str, Any]  # Формат выдачи RAG из Лабы 2.
@@ -7,25 +9,25 @@ ToolResult = dict[str, Any] | list[dict[str, Any]]
 TurnStatus = Literal['success', 'error', 'timeout', 'max_steps']
 
 
-class ToolCall(TypedDict):
+class ToolCall(BaseModel):
     name: str
     arguments: ToolArguments
-    result: NotRequired[ToolResult]
-    error: NotRequired[str]
+    result: ToolResult | None = None
+    error: str | None = None
 
 
-class AgentStats(TypedDict):
+class AgentStats(BaseModel):
     status: TurnStatus
     input_tokens: int | None
     output_tokens: int | None
-    steps: NotRequired[int]
-    trimmed: NotRequired[bool | None]
-    max_context: NotRequired[int | None]
-    context_tokens: NotRequired[int | None]
-    trimmed_before_answer: NotRequired[bool]
+    steps: int | None = None
+    trimmed: bool | None = None
+    max_context: int | None = None
+    context_tokens: int | None = None
+    trimmed_before_answer: bool | None = None
 
 
-class TurnMetrics(TypedDict):
+class TurnMetrics(BaseModel):
     latency_seconds: float
     tool_calls: int
     tool_errors: int

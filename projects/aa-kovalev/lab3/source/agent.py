@@ -133,11 +133,11 @@ class Agent:
                     compacted = current_turn
                     after = self.count(compacted)
                 if compacted != messages:
-                    self.trimmed = self.stats['trimmed'] = True
+                    self.trimmed = self.stats.trimmed = True
                 span.update(output={'tokens': after, 'messages_before': len(messages),
                                     'messages_after': len(compacted)})
                 messages = compacted
-        self.stats['max_context'] = max(self.stats['max_context'] or 0, after)
+        self.stats.max_context = max(self.stats.max_context or 0, after)
         return messages
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
@@ -147,15 +147,15 @@ class Agent:
         return {'max_tokens': max_tokens, 'temperature': CONFIG['temperature'], 'timeout': remaining}
 
     def add_usage(self, usage: RunUsage) -> None:
-        self.stats['input_tokens'] = (self.stats['input_tokens'] or 0) + usage.input_tokens
-        self.stats['output_tokens'] = (self.stats['output_tokens'] or 0) + usage.output_tokens
-        self.stats['steps'] += usage.requests
+        self.stats.input_tokens = (self.stats.input_tokens or 0) + usage.input_tokens
+        self.stats.output_tokens = (self.stats.output_tokens or 0) + usage.output_tokens
+        self.stats.steps = (self.stats.steps or 0) + usage.requests
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
-        self.stats: AgentStats = {
-            'input_tokens': 0, 'output_tokens': 0, 'steps': 0,
-            'trimmed': False, 'max_context': 0, 'status': 'success',
-        }
+        self.stats = AgentStats(
+            input_tokens=0, output_tokens=0, steps=0,
+            trimmed=False, max_context=0, status='success',
+        )
         try:
             request = self.agent.run(question, message_history=self.history,
                 usage_limits=UsageLimits(request_limit=CONFIG['max_steps']),
@@ -166,11 +166,11 @@ class Agent:
             answer = result.output
         except Exception as error:
             name = type(error).__name__.lower()
-            self.stats['status'] = ('max_steps' if name == 'usagelimitexceeded'
+            self.stats.status = ('max_steps' if name == 'usagelimitexceeded'
                                     else 'timeout' if 'timeout' in name else 'error')
             answer = str(error)
-        self.stats['trimmed_before_answer'] = self.trimmed
-        self.stats['context_tokens'] = self.count(self.history)
+        self.stats.trimmed_before_answer = self.trimmed
+        self.stats.context_tokens = self.count(self.history)
         return answer, self.stats
 
     def close(self) -> None:
