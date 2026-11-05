@@ -1,4 +1,5 @@
 """Local quiz forms and chat API."""
+import re
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import ExitStack, asynccontextmanager, closing
@@ -17,12 +18,15 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 from agent import Agent
 from book_tools import BookTools
-from quizzes import Quiz, get_quiz
+from quizzes import Quiz, get_quiz, list_quizes
 from turns import turn
 from settings import LAB2, ROOT
 
 
 DIALOGUES_DB = ROOT / 'dialogues.sqlite3'
+QUIZ_LINK = re.compile(
+    r'(?P<label>\[[^\]\n]+\])\((?:https?://[^/\s)]+)?(?P<path>/quiz/[^\s)]+)\)'
+)
 
 
 def connect_dialogues() -> sqlite3.Connection:
@@ -128,11 +132,26 @@ def home() -> str:
     return (ROOT / 'web/index.html').read_text(encoding='utf-8')
 
 
+def verify_quiz_links(answer: str, session: str) -> str:
+    if not QUIZ_LINK.search(answer):
+        return answer
+    urls = {quiz['url'] for quiz in list_quizes(session)}
+    return QUIZ_LINK.sub(
+        lambda match: f"{match['label']}({match['path']})" if match['path'] in urls
+        else 'Ссылка на квиз недоступна.',
+        answer,
+    )
+
+
 @app.get('/api/dialogues')
 def dialogues() -> list[Transcript]:
     with closing(connect_dialogues()) as db:
         rows = db.execute('SELECT transcript FROM dialogues ORDER BY rowid DESC').fetchall()
-    return [Transcript.model_validate_json(row[0]) for row in rows]
+    transcripts = [Transcript.model_validate_json(row[0]) for row in rows]
+    for transcript in transcripts:
+        for entry in transcript.turns:
+            entry.result.answer = verify_quiz_links(entry.result.answer, transcript.session)
+    return transcripts
 
 
 @app.post('/api/chat')
@@ -143,7 +162,8 @@ def chat(request: Request, message: Chat) -> ChatResponse:
         row = turn(dialogue.agent, dialogue.tools, message.message, session, 'custom', 'web')
         pages = dict.fromkeys(hit['page'] for hits in row.retrievals for hit in hits)
         book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
-        result = ChatResponse(session=session, answer=row.output, status=row.status,
+        result = ChatResponse(session=session, answer=verify_quiz_links(row.output, session),
+                              status=row.status,
                               trace_url=row.trace_url, book_pages=book_pages)
         with closing(connect_dialogues()) as db, db:
             saved = db.execute('SELECT transcript FROM dialogues WHERE session = ?', (session,)).fetchone()
