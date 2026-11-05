@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 from langfuse import get_client
+from observability import require_project
 from settings import ROOT, CONFIG
 from book_tools import BookTools
 from agent import Agent
@@ -25,8 +26,7 @@ def main() -> None:
     parser.add_argument('--tasks', nargs='+', help='Необязательный список ID для пробного запуска')
     args = parser.parse_args()
     lf = get_client()
-    if not lf.auth_check():
-        raise SystemExit('Langfuse недоступен: проверьте docker compose и .env')
+    require_project()
     instrument()
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid4().hex[:6]
     try:

@@ -9,6 +9,7 @@ from statistics import mean
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 from langfuse import Langfuse, get_client, propagate_attributes
+from observability import require_project
 
 from settings import LAB2  # Подключает модули Лабы 2.
 from retrieval_metrics import metrics, relevant_chunk_ids
@@ -72,8 +73,7 @@ def main() -> None:
         row['tool_correctness'] = int(set(expected) <= called) if expected else None
         row.update(retrieval_metrics(row, chunks, config['retrieval_k']))
     lf = get_client()
-    if not lf.auth_check():
-        raise SystemExit('Langfuse недоступен')
+    require_project()
     tasks = defaultdict(list)
     summaries, failures = [], []
     try:

@@ -5,6 +5,7 @@ from langfuse import get_client, propagate_attributes
 
 from book_tools import BookTools
 from contracts import AgentStats, DialogueAgent, TurnMetrics, TurnResult
+from observability import trace_url
 from settings import CONFIG, cost
 
 
@@ -50,5 +51,5 @@ def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
             return TurnResult(
                 **metadata, output=answer, calls=tools.calls.copy(),
                 retrievals=tools.retrievals.copy(), trace_id=span.trace_id,
-                trace_url=lf.get_trace_url(trace_id=span.trace_id), session_id=session,
+                trace_url=trace_url(span.trace_id), session_id=session,
             )
