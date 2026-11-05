@@ -5,7 +5,7 @@ from contextlib import closing
 from typing import Any
 from uuid import uuid4
 
-from constants import CREATE, DELETE, MAX_OPTIONS, MAX_QUESTIONS, MAX_QUIZ_TITLE, UPDATE, WEB_QUIZ_COLLECTION
+from constants import APPEND_QUESTIONS, CREATE, DELETE, MAX_OPTIONS, MAX_QUESTIONS, MAX_QUIZ_TITLE, UPDATE, WEB_QUIZ_COLLECTION
 from models.domain import Quiz, QuizSummary
 from models.schemas import Question
 from settings import ROOT
@@ -87,9 +87,18 @@ def manage_quiz(
         if action == DELETE:
             db.execute('DELETE FROM quizzes WHERE id = ?', (quiz_id,))
             return {'quiz_id': quiz_id, 'deleted': True}
-        if action != UPDATE:
-            raise ValueError('Допустимые действия: create, update, delete')
+        if action not in (UPDATE, APPEND_QUESTIONS):
+            raise ValueError('Допустимые действия: create, update, delete, append_questions')
         data = json.loads(row['questions'])
+        if action == APPEND_QUESTIONS:
+            if not questions:
+                raise ValueError('Передайте новые вопросы в questions')
+            if len(data) + len(questions) > MAX_QUESTIONS:
+                raise ValueError(f'После добавления в квизе должно быть не более {MAX_QUESTIONS} вопросов')
+            first_number = len(data) + 1
+            data.extend(Question.model_validate(item).model_dump() for item in questions)
+            db.execute('UPDATE quizzes SET questions = ? WHERE id = ?', (json.dumps(data), quiz_id))
+            return {**public(row), 'added_question_numbers': list(range(first_number, len(data) + 1))}
         index = question_index(question_number, len(data))
         if option_number is not None and option is None:
             raise ValueError('Укажите текст варианта')

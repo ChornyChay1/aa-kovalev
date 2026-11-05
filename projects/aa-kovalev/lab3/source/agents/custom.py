@@ -21,7 +21,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from constants import CREATE, DELETE, MANAGE_QUIZ, TOOL_OUTPUT_CHARS, TURN_RESERVE_TOKENS, UPDATE
+from constants import APPEND_QUESTIONS, CREATE, DELETE, MANAGE_QUIZ, TOOL_OUTPUT_CHARS, TURN_RESERVE_TOKENS, UPDATE
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
@@ -148,7 +148,8 @@ class Agent:
             answer = result.output
         except ContextBudgetExceeded as error:
             self.stats.status = 'error'
-            actions = {CREATE: 'Создан квиз', UPDATE: 'Изменён квиз', DELETE: 'Удалён квиз'}
+            actions = {CREATE: 'Создан квиз', UPDATE: 'Изменён квиз', DELETE: 'Удалён квиз',
+                       APPEND_QUESTIONS: 'Добавлены вопросы в квиз'}
             completed = [
                 f"{actions[call.arguments['action']]} `{call.result['quiz_id']}`."
                 for call in self.tools.calls

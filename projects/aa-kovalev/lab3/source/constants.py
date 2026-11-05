@@ -2,8 +2,8 @@
 import re
 from typing import Literal, get_args
 
-QuizAction = Literal['create', 'update', 'delete']
-CREATE, UPDATE, DELETE = get_args(QuizAction)
+QuizAction = Literal['create', 'update', 'delete', 'append_questions']
+CREATE, UPDATE, DELETE, APPEND_QUESTIONS = get_args(QuizAction)
 
 SEARCH_BOOK = 'search_book'
 MANAGE_QUIZ = 'manage_quiz'
