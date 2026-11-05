@@ -10,22 +10,19 @@ import httpx2
 from langfuse import get_client
 from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory
-from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
     ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai_harness import (
-    ClearToolResults, FallbackCompaction, SlidingWindowCompaction, SummarizingCompaction,
-)
+from pydantic_ai_harness import SlidingWindowCompaction
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from constants import FALLBACK_HISTORY_TOKENS, RECENT_HISTORY_TOKENS, SUMMARY_TOKENS, TOOL_OUTPUT_CHARS
+from constants import RECENT_HISTORY_TOKENS, TOOL_OUTPUT_CHARS
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
@@ -68,22 +65,8 @@ class Agent:
         model = OllamaModel(CONFIG['model'], provider=OllamaProvider(
             base_url=BASE_URL, api_key=API_KEY, http_client=self.http))
         self.sliding_window = SlidingWindowCompaction(
-            max_tokens=INPUT_BUDGET, keep_tokens=FALLBACK_HISTORY_TOKENS, tokenizer=count_text,
+            max_tokens=INPUT_BUDGET, keep_tokens=RECENT_HISTORY_TOKENS, tokenizer=count_text,
             preserve_first_user_message=False)
-        self.clear_tool_results = ClearToolResults(max_tokens=INPUT_BUDGET, keep_pairs=0)
-        self.compaction = FallbackCompaction(
-            fallback_chain=[
-                SummarizingCompaction(
-                    max_tokens=INPUT_BUDGET, keep_tokens=RECENT_HISTORY_TOKENS, tokenizer=count_text,
-                    preserve_first_user_message=False, retries=0,
-                    model_settings={'max_tokens': SUMMARY_TOKENS,
-                                    'temperature': CONFIG['temperature'],
-                                    'timeout': CONFIG['timeout_seconds']},
-                    summarization_capabilities=[Instrumentation()]),
-                self.sliding_window,
-            ],
-            fallback_on=(ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded),
-            tokenizer=count_text)
         self.agent = PydanticAgent(
             model, instructions=self.instructions, retries=2,
             capabilities=[
@@ -106,17 +89,14 @@ class Agent:
                     input={'tokens': before, 'budget': INPUT_BUDGET}) as span:
                 latest_turn = max((i for i, message in enumerate(messages) if starts_a_turn(message)), default=0)
                 current_turn = messages[latest_turn:]
-                if self.count(current_turn) > INPUT_BUDGET:
-                    current_turn = await self.clear_tool_results.compact(current_turn, ctx)
-                if self.count(current_turn) > INPUT_BUDGET:
-                    raise ValueError('Текущая реплика с результатами инструментов слишком длинная. Уточните запрос.')
-                compacted = await self.compaction.compact(messages, ctx)
+                compacted = await self.sliding_window.compact(messages, ctx)
                 after = self.count(compacted)
-                # Harness's trigger is an estimate, and its retained tail can exceed it.
-                # Keep the current complete turn, as in the ProcessHistory example.
+                # Keep the full current turn, including paired tool calls and results.
                 if after > INPUT_BUDGET or messages[latest_turn] not in compacted:
                     compacted = current_turn
                     after = self.count(compacted)
+                if after > INPUT_BUDGET:
+                    raise ValueError('Текущая реплика с результатами инструментов слишком длинная. Уточните запрос.')
                 if compacted != messages:
                     self.trimmed = self.stats.trimmed = True
                 span.update(output={'tokens': after, 'messages_before': len(messages),
