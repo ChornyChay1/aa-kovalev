@@ -1,6 +1,7 @@
 """PydanticAI agent with a token-budgeted history processor."""
 import asyncio
 import json
+from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from functools import lru_cache
 from time import monotonic
@@ -12,7 +13,9 @@ from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, Tool, Us
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory
 from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import (
-    ModelMessage, ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart,
+    AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
+    ModelMessagesTypeAdapter, ModelRequest, PartDeltaEvent, PartStartEvent, TextPart,
+    TextPartDelta, ToolReturnPart, UserPromptPart,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -61,6 +64,7 @@ def require_nonempty_answer(output: str) -> str:
 class Agent:
     def __init__(self, tools: BookTools) -> None:
         self.tools = tools
+        self.on_event: Callable[[str, str], None] | None = None
         self.history: list[ModelMessage] = []
         self.trimmed = False
         self.loop = asyncio.Runner()
@@ -162,6 +166,20 @@ class Agent:
         self.stats.output_tokens = (self.stats.output_tokens or 0) + usage.output_tokens
         self.stats.steps = (self.stats.steps or 0) + usage.requests
 
+    async def stream_events(self, ctx: RunContext, events: AsyncIterable[AgentStreamEvent]) -> None:
+        emit = self.on_event
+        if emit is None:
+            return
+        async for event in events:
+            if isinstance(event, FunctionToolCallEvent):
+                emit('tool', event.part.tool_name)
+            elif isinstance(event, FunctionToolResultEvent):
+                emit('tool_done', event.part.tool_name)
+            elif isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                emit('text', event.part.content)
+            elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                emit('text', event.delta.content_delta)
+
     def answer(self, question: str) -> tuple[str, AgentStats]:
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
@@ -170,7 +188,8 @@ class Agent:
         try:
             request = self.agent.run(question, message_history=self.history,
                 usage_limits=UsageLimits(request_limit=CONFIG['max_steps']),
-                model_settings=self.model_settings(CONFIG['max_output_tokens']))
+                model_settings=self.model_settings(CONFIG['max_output_tokens']),
+                event_stream_handler=self.stream_events if self.on_event else None)
             result = self.loop.run(asyncio.wait_for(request, CONFIG['timeout_seconds']), context=copy_context())
             self.history = result.all_messages()
             self.add_usage(result.usage)

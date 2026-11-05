@@ -60,11 +60,11 @@ textarea { width: 100%; min-height: 5rem; resize: vertical; padding: .8rem; bord
     <h1>Квизы по Python</h1>
     <p class="muted">Задайте вопрос по Python или попросите агента составить квиз.</p>
     <section id="history" aria-label="Переписка" aria-live="polite"></section>
+    <p id="status" role="status"></p>
     <form>
       <textarea required maxlength="6000" aria-label="Сообщение" placeholder="Создай квиз по циклам на три вопроса"></textarea>
       <button class="primary" id="send">Отправить</button>
     </form>
-    <p id="status" role="status"></p>
   </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/marked@15.0.0/lib/marked.umd.js"></script>
@@ -176,6 +176,26 @@ function select(session) {
   if (!input.disabled) input.focus();
 }
 
+async function readEvents(response, onEvent) {
+  if (!response.ok) throw new Error((await response.json()).detail);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    pending += value;
+    const lines = pending.split('\n');
+    pending = lines.pop();
+    for (const line of lines) {
+      const event = JSON.parse(line);
+      if (event.kind === 'result') return event.value;
+      if (event.kind === 'error') throw new Error(event.value);
+      onEvent(event);
+    }
+  }
+  throw new Error('Ответ прервался.');
+}
+
 newDialog.onclick = () => select(null);
 form.onsubmit = async event => {
   event.preventDefault();
@@ -187,13 +207,33 @@ form.onsubmit = async event => {
   if (!dialog) historyPanel.replaceChildren();
   appendMessage('Вы', message);
   status.textContent = 'Агент работает…';
+  status.scrollIntoView({block: 'nearest'});
+  const draft = document.createElement('article');
+  draft.className = 'plain';
+  const tools = [];
   try {
-    const response = await fetch('/api/chat', {
+    const response = await fetch('/api/chat/stream', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({session: dialog?.session, message})
     });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail);
+    const result = await readEvents(response, ({kind, value}) => {
+      if (kind === 'text') {
+        if (!draft.isConnected) historyPanel.append(draft);
+        draft.append(value);
+        return;
+      }
+      if (kind === 'tool') {
+        draft.replaceChildren();
+        draft.remove();
+        tools.push(value);
+      } else if (kind === 'tool_done') {
+        const index = tools.indexOf(value);
+        if (index !== -1) tools.splice(index, 1);
+      }
+      status.textContent = tools.length
+        ? 'Агент работает · ' + tools.join(', ')
+        : 'Агент работает…';
+    });
     if (!dialog) {
       dialog = {session: result.session, title: message.slice(0, 70), turns: []};
       state.dialogues.unshift(dialog);

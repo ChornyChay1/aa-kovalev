@@ -1,7 +1,9 @@
 """Local quiz forms and chat API."""
+import asyncio
+import json
 import re
 import sqlite3
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import ExitStack, asynccontextmanager, closing
 from dataclasses import dataclass
 from html import escape
@@ -10,7 +12,7 @@ from threading import Lock
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from langfuse import get_client
 from pydantic import BaseModel, Field
@@ -158,8 +160,17 @@ def dialogues() -> list[Transcript]:
 def chat(request: Request, message: Chat) -> ChatResponse:
     sessions: ChatSessions = request.app.state.chat_sessions
     session, dialogue = sessions.get(message.session)
+    return run_chat(session, dialogue, message.message)
+
+
+def run_chat(session: str, dialogue: Dialogue, message: str,
+             emit: Callable[[str, str], None] | None = None) -> ChatResponse:
     with dialogue.lock:
-        row = turn(dialogue.agent, dialogue.tools, message.message, session, 'custom', 'web')
+        dialogue.agent.on_event = emit
+        try:
+            row = turn(dialogue.agent, dialogue.tools, message, session, 'custom', 'web')
+        finally:
+            dialogue.agent.on_event = None
         pages = dict.fromkeys(hit['page'] for hits in row.retrievals for hit in hits)
         book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
         result = ChatResponse(session=session, answer=verify_quiz_links(row.output, session),
@@ -168,14 +179,49 @@ def chat(request: Request, message: Chat) -> ChatResponse:
         with closing(connect_dialogues()) as db, db:
             saved = db.execute('SELECT transcript FROM dialogues WHERE session = ?', (session,)).fetchone()
             transcript = (Transcript.model_validate_json(saved[0]) if saved
-                          else Transcript(session=session, title=message.message.strip()[:70]))
-            transcript.turns.append(ChatTurn(message=message.message, result=result))
+                          else Transcript(session=session, title=message.strip()[:70]))
+            transcript.turns.append(ChatTurn(message=message, result=result))
             db.execute("""INSERT INTO dialogues (session, history, transcript) VALUES (?, ?, ?)
                           ON CONFLICT(session) DO UPDATE SET
                               history = excluded.history, transcript = excluded.transcript""",
                        (session, ModelMessagesTypeAdapter.dump_json(dialogue.agent.history),
                         transcript.model_dump_json()))
     return result
+
+
+@app.post('/api/chat/stream')
+async def chat_stream(request: Request, message: Chat) -> StreamingResponse:
+    sessions: ChatSessions = request.app.state.chat_sessions
+    session, dialogue = await run_in_threadpool(sessions.get, message.session)
+
+    async def events() -> AsyncIterator[str]:
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
+        connected = True
+
+        def emit(kind: str, value: str) -> None:
+            if connected:
+                loop.call_soon_threadsafe(queue.put_nowait, (kind, value))
+
+        async def run() -> None:
+            try:
+                result = await run_in_threadpool(run_chat, session, dialogue, message.message, emit)
+                queue.put_nowait(('result', result.model_dump(mode='json')))
+            except Exception:
+                queue.put_nowait(('error', 'Не удалось завершить запрос.'))
+
+        worker = asyncio.create_task(run())
+        try:
+            while True:
+                kind, value = await queue.get()
+                yield json.dumps({'kind': kind, 'value': value}, ensure_ascii=False) + '\n'
+                if kind in {'result', 'error'}:
+                    break
+        finally:
+            connected = False
+            await asyncio.shield(worker)
+
+    return StreamingResponse(events(), media_type='application/x-ndjson')
 
 
 @app.get('/document/{session}', response_class=FileResponse)
