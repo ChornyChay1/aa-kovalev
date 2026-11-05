@@ -24,6 +24,9 @@ class BookTools:
         self.reset()
 
     def reset(self) -> None:
+        self.edit_quiz_id: str | None = None
+        self.explicit_quiz_ids: set[str] = set()
+        self.history_trimmed = False
         self.calls: list[ToolCall] = []
         self.retrievals: list[list[SearchHit]] = []
         self.deadline = monotonic() + CONFIG['timeout_seconds']

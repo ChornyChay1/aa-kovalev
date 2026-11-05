@@ -1,6 +1,7 @@
 """PydanticAI agent with a token-budgeted history processor."""
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from functools import lru_cache
@@ -28,6 +29,7 @@ from tools.pydantic_tools import build_tools
 from services.prompts import system_prompt
 from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS
 
+QUIZ_ID = re.compile(r'(?<![\w-])[0-9a-f]{32}(?![\w-])')
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
 
 
@@ -93,7 +95,7 @@ class Agent:
                             break
                 if after > INPUT_BUDGET:
                     raise ValueError('Текущая реплика с результатами инструментов слишком длинная. Уточните запрос.')
-                self.trimmed = self.stats.trimmed = True
+                self.trimmed = self.stats.trimmed = self.tools.history_trimmed = True
                 span.update(output={'tokens': after, 'messages_before': len(messages),
                                     'messages_after': len(compacted)})
                 messages = compacted
@@ -122,6 +124,7 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
+        self.tools.explicit_quiz_ids = set(QUIZ_ID.findall(question))
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
