@@ -4,47 +4,18 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from time import perf_counter
 from uuid import uuid4
 from dishka import Scope, make_container
-from langfuse import get_client, propagate_attributes
-from settings import ROOT, CONFIG, cost
+from langfuse import get_client
+from settings import ROOT, CONFIG
 from book_tools import BookTools
 from dependencies import LabProvider
 from agent import Agent
 from quizzes import get_quiz, list_quizes
 from ready_agent import ReadyAgent, instrument
+from turns import turn
 
 AGENTS = {'custom': Agent, 'smolagents': ReadyAgent}
-
-
-def turn(agent, tools, question, session, agent_name, run_id):
-    lf = get_client()
-    tools.reset()
-    tools.session = session
-    started = perf_counter()
-    with lf.start_as_current_observation(name='user-turn', input=question) as span:
-        with propagate_attributes(user_id=CONFIG['user_id'], session_id=session,
-                tags=[agent_name, CONFIG['version'], CONFIG['model'], run_id],
-                metadata={'run_id': run_id, 'agent': agent_name}):
-            span.update_trace(input=question, user_id=CONFIG['user_id'], session_id=session,
-                              tags=[agent_name, CONFIG['version'], CONFIG['model'], run_id])
-            try:
-                answer, stats = agent.answer(question)
-            except Exception as error:
-                answer, stats = str(error), {'status': 'error', 'input_tokens': None, 'output_tokens': None}
-            stats['latency_seconds'] = perf_counter() - started
-            stats['tool_calls'] = len(tools.calls)
-            stats['tool_errors'] = sum('error' in c for c in tools.calls)
-            stats['cost_usd'] = (cost(stats['input_tokens'], stats['output_tokens'])
-                if stats['input_tokens'] is not None and stats['output_tokens'] is not None else None)
-            if stats['status'] != 'success' or stats['tool_errors']:
-                span.update(level='WARNING', status_message=stats['status'] if stats['status'] != 'success' else 'tool_errors')
-            span.update(output=answer, metadata={**stats, 'config': CONFIG})
-            span.update_trace(output=answer)
-            return {'output': answer, **stats, 'calls': tools.calls.copy(),
-                    'retrievals': tools.retrievals.copy(), 'trace_id': span.trace_id,
-                    'trace_url': lf.get_trace_url(trace_id=span.trace_id), 'session_id': session}
 
 
 def main():
@@ -109,7 +80,8 @@ def run_batch(args, run_id, batch):
                         row['quizzes'] = [get_quiz(quiz['quiz_id'], session) for quiz in list_quizes(session)]
                         row.update(agent=name, task_id=task['id'], turn=i, input=question,
                             expected_output=task['expected_output'][i], metadata=task['metadata'])
-                        output.write(json.dumps(row, ensure_ascii=False) + '\n'); output.flush()
+                        output.write(json.dumps(row, ensure_ascii=False) + '\n')
+                        output.flush()
                         writer.writerow({k: row[k] for k in writer.fieldnames if k in row})
                         review.flush()
                         print(name, task['id'], i, row['status'], flush=True)

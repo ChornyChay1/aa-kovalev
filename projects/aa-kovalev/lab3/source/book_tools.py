@@ -30,27 +30,7 @@ class BookTools:
             record = {'name': name, 'arguments': arguments}
             self.calls.append(record)
             try:
-                remaining = self.deadline - monotonic()
-                if remaining <= 0:
-                    raise TimeoutError('Исчерпан таймаут реплики')
-                if name == 'search_book':
-                    # Retrieval делает два последовательных HTTP-запроса.
-                    self.rag.api.client.timeout = httpx.Timeout(remaining / 2)
-                    with lf.start_as_current_observation(name='retrieval', as_type='retriever',
-                            input=arguments, metadata={'source': self.rag.config['source'],
-                                                     'index': self.rag.manifest['version']}) as retrieval:
-                        hits, _ = self.rag.retrieve(arguments['query'], CONFIG['retrieval_k'])
-                        self.retrievals.append(hits)
-                        retrieval.update(output=hits)
-                        result = hits
-                elif name == 'manage_quiz':
-                    result = manage_quiz(self.session, **arguments)
-                elif name == 'list_quizes':
-                    result = list_quizes(self.session)
-                elif name == 'get_quiz_info':
-                    result = get_quiz_info(self.session, **arguments)
-                else:
-                    raise ValueError('Неизвестный инструмент: ' + name)
+                result = self.dispatch(name, arguments)
                 record['result'] = result
                 span.update(output=result)
                 return result
@@ -59,6 +39,32 @@ class BookTools:
                 result = {'error': str(error), 'hint': 'Исправь аргументы или используй другой инструмент.'}
                 span.update(output=result, level='ERROR', status_message=str(error))
                 return result
+
+    def dispatch(self, name, arguments):
+        remaining = self.deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError('Исчерпан таймаут реплики')
+        if name == 'search_book':
+            return self.search_book(arguments, remaining)
+        if name == 'manage_quiz':
+            return manage_quiz(self.session, **arguments)
+        if name == 'list_quizes':
+            return list_quizes(self.session)
+        if name == 'get_quiz_info':
+            return get_quiz_info(self.session, **arguments)
+        raise ValueError('Неизвестный инструмент: ' + name)
+
+    def search_book(self, arguments, remaining):
+        # Retrieval делает два последовательных HTTP-запроса.
+        self.rag.api.client.timeout = httpx.Timeout(remaining / 2)
+        with get_client().start_as_current_observation(
+            name='retrieval', as_type='retriever', input=arguments,
+            metadata={'source': self.rag.config['source'], 'index': self.rag.manifest['version']},
+        ) as span:
+            hits, _ = self.rag.retrieve(arguments['query'], CONFIG['retrieval_k'])
+            self.retrievals.append(hits)
+            span.update(output=hits)
+            return hits
 
     def close(self):
         self.rag.close()
