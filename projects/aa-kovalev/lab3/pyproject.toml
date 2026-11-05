@@ -3,7 +3,6 @@ name = "aa-kovalev-lab3"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-  "dishka==1.10.1",
   "httpx>=0.28,<0.29",
   "httpx2>=2,<3",
   "transformers>=4.51,<5",

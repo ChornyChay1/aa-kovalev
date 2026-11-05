@@ -2,21 +2,19 @@
 import argparse
 import csv
 import json
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
-from dishka import Container, Scope, make_container
 from langfuse import get_client
 from settings import ROOT, CONFIG
 from book_tools import BookTools
-from contracts import DialogueAgent
-from dependencies import LabProvider
 from agent import Agent
 from quizzes import get_quiz, list_quizes
 from ready_agent import ReadyAgent, instrument
 from turns import turn
 
-AGENTS: dict[str, type[DialogueAgent]] = {'custom': Agent, 'smolagents': ReadyAgent}
+AGENTS: dict[str, type[Agent] | type[ReadyAgent]] = {'custom': Agent, 'smolagents': ReadyAgent}
 
 
 def main() -> None:
@@ -31,23 +29,17 @@ def main() -> None:
         raise SystemExit('Langfuse недоступен: проверьте docker compose и .env')
     instrument()
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid4().hex[:6]
-    container = make_container(LabProvider(args.index))
     try:
-        with container(scope=Scope.SESSION) as batch:
-            run_batch(args, run_id, batch)
+        with closing(BookTools(args.index)) as tools:
+            run_batch(args, run_id, tools)
     finally:
-        try:
-            container.close()
-        finally:
-            lf.flush()
+        lf.flush()
 
 
-def run_batch(args: argparse.Namespace, run_id: str, batch: Container) -> None:
-    tools = batch.get(BookTools)
+def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
     if args.chat:
         agent_name = 'custom' if args.agent == 'both' else args.agent
-        with batch() as dialogue:
-            agent = dialogue.get(AGENTS[agent_name])
+        with closing(AGENTS[agent_name](tools)) as agent:
             while question := input('Вы (пустая строка — выход): ').strip():
                 reply = turn(agent, tools, question, run_id, agent_name, run_id)
                 print(reply['output'], '\n', reply['trace_url'])
@@ -74,8 +66,7 @@ def run_batch(args: argparse.Namespace, run_id: str, batch: Container) -> None:
         for name in names:
             for task in tasks:
                 session = f'{run_id}-{name}-{task["id"]}'
-                with batch() as dialogue:
-                    agent = dialogue.get(AGENTS[name])
+                with closing(AGENTS[name](tools)) as agent:
                     for i, question in enumerate(task['input']):
                         row = dict(turn(agent, tools, question, session, name, run_id))
                         row['quizzes'] = [get_quiz(quiz['quiz_id'], session) for quiz in list_quizes(session)]

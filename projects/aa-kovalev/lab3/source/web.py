@@ -1,15 +1,13 @@
 """Local quiz forms and chat API."""
-from collections.abc import AsyncIterator, Iterator
-from contextlib import ExitStack, asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import ExitStack, asynccontextmanager, closing
 from dataclasses import dataclass
 from html import escape
 from string import Template
 from threading import Lock
 from uuid import uuid4
 
-from dishka import Container, Provider, Scope, make_container, provide
-from dishka.integrations.fastapi import FastapiProvider, FromDishka, inject_sync, setup_dishka
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from langfuse import get_client
@@ -17,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from agent import Agent
 from book_tools import BookTools
-from dependencies import LabProvider
 from quizzes import Quiz, get_quiz
 from turns import turn
 from settings import ROOT
@@ -31,9 +28,8 @@ class Dialogue:
 
 
 class ChatSessions:
-    def __init__(self, container: Container, scopes: ExitStack) -> None:
-        self.container = container
-        self.scopes = scopes
+    def __init__(self) -> None:
+        self.resources = ExitStack()
         self.dialogues: dict[str, Dialogue] = {}
         self.lock = Lock()
 
@@ -44,39 +40,34 @@ class ChatSessions:
                     raise HTTPException(404, 'Сессия завершилась. Начните новый диалог.')
                 return session, self.dialogues[session]
             session = uuid4().hex
-            # Register a scope only after all resources were created successfully.
+            # Keep resources only after both objects were created successfully.
             with ExitStack() as opening:
-                scope = opening.enter_context(self.container(scope=Scope.REQUEST))
                 try:
-                    dialogue = Dialogue(scope.get(Agent), scope.get(BookTools), Lock())
+                    tools = opening.enter_context(closing(BookTools()))
+                    agent = opening.enter_context(closing(Agent(tools)))
                 except FileNotFoundError as error:
                     raise HTTPException(503, 'Подготовьте активный индекс Лабы 2.') from error
-                self.scopes.enter_context(opening.pop_all())
+                self.resources.enter_context(opening.pop_all())
+            dialogue = Dialogue(agent, tools, Lock())
             self.dialogues[session] = dialogue
             return session, dialogue
 
 
-class WebProvider(Provider):
-    @provide(scope=Scope.APP)
-    def chat_sessions(self, container: Container) -> Iterator[ChatSessions]:
-        with ExitStack() as scopes:
-            yield ChatSessions(container, scopes)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    sessions = ChatSessions()
+    app.state.chat_sessions = sessions
     try:
         yield
     finally:
         try:
             # Agent.close() runs its own asyncio.Runner.
-            await run_in_threadpool(app.state.dishka_container.close)
+            await run_in_threadpool(sessions.resources.close)
         finally:
             get_client().flush()
 
 
 app = FastAPI(lifespan=lifespan)
-setup_dishka(container=make_container(LabProvider(), WebProvider(), FastapiProvider(), lock_factory=Lock), app=app)
 
 
 class Chat(BaseModel):
@@ -101,11 +92,11 @@ def home() -> str:
 
 
 @app.post('/api/chat')
-@inject_sync
-def chat(request: Chat, sessions: FromDishka[ChatSessions]) -> ChatResponse:
-    session, dialogue = sessions.get(request.session)
+def chat(request: Request, message: Chat) -> ChatResponse:
+    sessions: ChatSessions = request.app.state.chat_sessions
+    session, dialogue = sessions.get(message.session)
     with dialogue.lock:
-        row = turn(dialogue.agent, dialogue.tools, request.message, session, 'custom', 'web')
+        row = turn(dialogue.agent, dialogue.tools, message.message, session, 'custom', 'web')
     return ChatResponse(session=session, answer=row['output'], status=row['status'],
                         trace_url=row['trace_url'])
 
