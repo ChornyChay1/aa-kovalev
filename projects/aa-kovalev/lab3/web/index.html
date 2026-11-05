@@ -1,87 +1,203 @@
 <!doctype html>
 <html lang="ru">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Квизы по Python</title>
 <style>
-body { font: 17px system-ui; max-width: 760px; margin: 3rem auto; padding: 0 1rem; }
-article { white-space: pre-wrap; background: #edf2fa; border-radius: 10px; padding: 1rem; margin: .75rem 0; }
-textarea { box-sizing: border-box; width: 100%; min-height: 6rem; font: inherit; padding: .75rem; }
-button { padding: .55rem 1rem; margin-top: .5rem; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #17243b; background: #f5f7fb; }
+.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); max-width: 1180px; min-height: 100dvh; margin: auto; }
+aside { padding: 1.5rem 1rem; background: #eaf0fa; }
+main { width: min(100%, 820px); margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 3rem); }
+h1, h2, p { margin: 0 0 .75rem; }
+h1 { font-size: clamp(1.65rem, 5vw, 2.4rem); }
+h2 { font-size: 1rem; margin-top: 1.5rem; }
+.muted, #status { color: #495970; }
+button, textarea { font: inherit; }
+button { padding: .55rem .9rem; border: 0; border-radius: .6rem; cursor: pointer; }
+button:disabled { cursor: default; opacity: .55; }
+.primary { background: #244fc0; color: white; font-weight: 600; }
+#dialogs button { display: block; width: 100%; text-align: left; margin-bottom: .35rem; color: inherit; background: transparent; overflow-wrap: anywhere; }
+#dialogs button:hover, #dialogs [aria-current="true"] { background: #d5e2fb; }
+#history { display: grid; gap: .75rem; margin: 1.5rem 0; }
+article { white-space: pre-wrap; overflow-wrap: anywhere; border-radius: .85rem; background: white; padding: .85rem 1rem; }
+article.user { background: #e3ecff; justify-self: end; max-width: 90%; }
+article strong { display: block; margin-bottom: .3rem; }
+a { color: #2149af; }
+.sources { margin-top: .65rem; font-size: .9rem; }
+form { display: grid; gap: .6rem; justify-items: start; }
+textarea { width: 100%; min-height: 5rem; resize: vertical; padding: .8rem; border: 1px solid #aebcd3; border-radius: .75rem; }
+#status { min-height: 1.5rem; margin-top: .5rem; }
+@media (max-width: 640px) {
+  .layout { grid-template-columns: 1fr; }
+  aside, main { padding: 1rem; }
+  #dialogs { max-height: 9rem; overflow: auto; }
+}
 </style>
-<h1>Квизы по Python</h1>
-<p>Попросите агента составить тест по учебнику, посмотреть список квизов или изменить вопрос.</p>
-<section id="history" aria-live="polite"></section>
-<form>
-  <textarea required maxlength="6000" aria-label="Сообщение" placeholder="Создай квиз по циклам на три вопроса"></textarea>
-  <button>Отправить</button>
-  <button type="button" id="reset">Новый диалог</button>
-</form>
-<p id="status" role="status"></p>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <button class="primary" id="new-dialog" type="button">+ Новый диалог</button>
+    <h2>Диалоги</h2>
+    <nav id="dialogs" aria-label="Список диалогов"></nav>
+  </aside>
+  <main>
+    <h1>Квизы по Python</h1>
+    <p class="muted">Задайте вопрос по Python или попросите агента составить квиз.</p>
+    <section id="history" aria-label="Переписка" aria-live="polite"></section>
+    <form>
+      <textarea required maxlength="6000" aria-label="Сообщение" placeholder="Создай квиз по циклам на три вопроса"></textarea>
+      <button class="primary" id="send">Отправить</button>
+    </form>
+    <p id="status" role="status"></p>
+  </main>
+</div>
 <script>
+const STORAGE_KEY = 'lab3-dialogues';
 const historyPanel = document.querySelector('#history');
+const dialogsPanel = document.querySelector('#dialogs');
+const newDialog = document.querySelector('#new-dialog');
 const form = document.querySelector('form');
 const input = form.querySelector('textarea');
+const send = document.querySelector('#send');
 const status = document.querySelector('#status');
-let session;
-function append(label, message, links = false) {
-  const item = document.createElement('article');
-  item.append(label + '\n');
-  if (links) {
-    for (const part of message.split(/(\/quiz\/[a-f0-9]{32})/g)) {
-      if (part.startsWith('/quiz/')) {
-        const link = document.createElement('a');
-        link.href = part;
-        link.textContent = part;
-        item.append(link);
-      } else item.append(part);
-    }
-  } else item.append(message);
-  historyPanel.append(item);
-  return item;
+const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{"dialogues":[],"active":null}');
+let busy = false;
+
+function activeDialog() {
+  return state.dialogues.find(dialog => dialog.session === state.active);
 }
-document.querySelector('#reset').onclick = () => {
-  session = undefined;
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function addLink(parent, label, url, newTab = false) {
+  const link = document.createElement('a');
+  link.textContent = label;
+  link.href = url;
+  if (newTab) {
+    link.target = '_blank';
+    link.rel = 'noopener';
+  }
+  parent.append(link);
+}
+
+function appendMessage(label, message, result) {
+  const article = document.createElement('article');
+  if (!result) article.className = 'user';
+  const author = document.createElement('strong');
+  author.textContent = label;
+  article.append(author);
+  if (result) {
+    const quizLinks = /\[([^\]\n]+)\]\((\/quiz\/[a-f0-9]{32})\)|(\/quiz\/[a-f0-9]{32})/g;
+    let start = 0;
+    for (const match of message.matchAll(quizLinks)) {
+      article.append(message.slice(start, match.index));
+      addLink(article, match[1] || 'Открыть квиз', match[2] || match[3]);
+      start = match.index + match[0].length;
+    }
+    article.append(message.slice(start));
+    const sources = document.createElement('div');
+    sources.className = 'sources';
+    if (result.book_pages.length) {
+      sources.append('Найдено в учебнике ');
+      for (const page of result.book_pages) {
+        addLink(sources, 'стр. ' + page.page, page.url, true);
+        sources.append(' ');
+      }
+    }
+    if (/^https?:\/\//.test(result.trace_url)) {
+      if (sources.hasChildNodes()) sources.append('· ');
+      addLink(sources, 'Трейс Langfuse', result.trace_url, true);
+    }
+    if (sources.hasChildNodes()) article.append(sources);
+  } else article.append(message);
+  historyPanel.append(article);
+}
+
+function render() {
+  const active = activeDialog();
+  dialogsPanel.replaceChildren();
+  for (const dialog of state.dialogues) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = dialog.title;
+    button.disabled = busy;
+    if (dialog === active) button.setAttribute('aria-current', 'true');
+    button.onclick = () => select(dialog.session);
+    dialogsPanel.append(button);
+  }
   historyPanel.replaceChildren();
-  status.textContent = '';
-};
-form.onsubmit = async (event) => {
+  for (const turn of active?.turns || []) {
+    appendMessage('Вы', turn.message);
+    appendMessage('Агент', turn.result.answer, turn.result);
+  }
+  if (!active) {
+    const hint = document.createElement('p');
+    hint.className = 'muted';
+    hint.textContent = 'Напишите сообщение, чтобы начать диалог.';
+    historyPanel.append(hint);
+  }
+  newDialog.disabled = busy;
+  input.disabled = send.disabled = busy || Boolean(active?.ended);
+}
+
+function select(session) {
+  state.active = session;
+  input.value = '';
+  status.textContent = activeDialog()?.ended ? 'Сессия завершилась. Переписку можно прочитать здесь.' : '';
+  save();
+  render();
+  if (!input.disabled) input.focus();
+}
+
+newDialog.onclick = () => select(null);
+form.onsubmit = async event => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message) return;
-  form.querySelectorAll('button').forEach(button => button.disabled = true);
-  append('Вы', message);
+  if (!message || busy || activeDialog()?.ended) return;
+  let dialog = activeDialog();
+  busy = true;
+  render();
+  if (!dialog) historyPanel.replaceChildren();
+  appendMessage('Вы', message);
   status.textContent = 'Агент работает…';
   try {
     const response = await fetch('/api/chat', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({session, message})
+      body: JSON.stringify({session: dialog?.session, message})
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.detail);
-    session = result.session;
-    const item = append('Агент', result.answer, true);
-    if (result.book_pages.length) {
-      item.append('\nНайдено в учебнике');
-      for (const page of result.book_pages) {
-        const link = document.createElement('a');
-        link.href = page.url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = 'стр. ' + page.page;
-        item.append(' ', link);
+    if (!response.ok) {
+      if (response.status === 404 && dialog) {
+        dialog.ended = true;
+        save();
       }
+      throw new Error(result.detail);
     }
-    if (result.trace_url && /^https?:\/\//.test(result.trace_url)) {
-      const link = document.createElement('a');
-      link.href = result.trace_url;
-      link.textContent = 'Трейс Langfuse';
-      item.append('\n', link);
+    if (!dialog) {
+      dialog = {session: result.session, title: message.slice(0, 70), turns: []};
+      state.dialogues.unshift(dialog);
+      state.active = dialog.session;
     }
+    dialog.turns.push({message, result});
+    save();
     input.value = '';
     status.textContent = '';
-  } catch (error) { status.textContent = error.message; }
-  finally { form.querySelectorAll('button').forEach(button => button.disabled = false); }
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    busy = false;
+    render();
+    status.scrollIntoView({block: 'nearest'});
+    if (!input.disabled) input.focus({preventScroll: true});
+  }
 };
+render();
+if (activeDialog()?.ended) status.textContent = 'Сессия завершилась. Переписку можно прочитать здесь.';
 </script>
+</body>
 </html>
