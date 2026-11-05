@@ -16,13 +16,12 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai_harness import SlidingWindowCompaction
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from constants import RECENT_HISTORY_TOKENS, TOOL_OUTPUT_CHARS
+from constants import TOOL_OUTPUT_CHARS
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
@@ -64,9 +63,6 @@ class Agent:
         self.http = httpx2.AsyncClient(trust_env=False)
         model = OllamaModel(CONFIG['model'], provider=OllamaProvider(
             base_url=BASE_URL, api_key=API_KEY, http_client=self.http))
-        self.sliding_window = SlidingWindowCompaction(
-            max_tokens=INPUT_BUDGET, keep_tokens=RECENT_HISTORY_TOKENS, tokenizer=count_text,
-            preserve_first_user_message=False)
         self.agent = PydanticAgent(
             model, instructions=self.instructions, retries=2,
             capabilities=[
@@ -87,18 +83,17 @@ class Agent:
         if before > INPUT_BUDGET:
             with get_client().start_as_current_observation(name='context-trim',
                     input={'tokens': before, 'budget': INPUT_BUDGET}) as span:
-                latest_turn = max((i for i, message in enumerate(messages) if starts_a_turn(message)), default=0)
-                current_turn = messages[latest_turn:]
-                compacted = await self.sliding_window.compact(messages, ctx)
-                after = self.count(compacted)
-                # Keep the full current turn, including paired tool calls and results.
-                if after > INPUT_BUDGET or messages[latest_turn] not in compacted:
-                    compacted = current_turn
-                    after = self.count(compacted)
+                # Drop only complete older turns, including their tool calls and results.
+                compacted = messages
+                for i in range(1, len(messages)):
+                    if starts_a_turn(messages[i]):
+                        compacted = messages[i:]
+                        after = self.count(compacted)
+                        if after <= INPUT_BUDGET:
+                            break
                 if after > INPUT_BUDGET:
                     raise ValueError('Текущая реплика с результатами инструментов слишком длинная. Уточните запрос.')
-                if compacted != messages:
-                    self.trimmed = self.stats.trimmed = True
+                self.trimmed = self.stats.trimmed = True
                 span.update(output={'tokens': after, 'messages_before': len(messages),
                                     'messages_after': len(compacted)})
                 messages = compacted
