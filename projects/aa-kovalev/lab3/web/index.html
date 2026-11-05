@@ -117,6 +117,16 @@ function appendMessage(label, message, result) {
         FORBID_TAGS: ['img', 'form', 'style'],
         FORBID_ATTR: ['style'],
       });
+      for (const link of body.querySelectorAll('a[href]')) {
+        const match = link.getAttribute('href').match(/^(?:https?:\/\/[^/]+)?\/quiz\/([a-f0-9]{32})$/);
+        if (!match) continue;
+        const id = match[1];
+        const item = link.closest('li, p') || link;
+        if (item.textContent.includes(id)) continue;
+        const code = document.createElement('code');
+        code.textContent = id;
+        link.after(' · ID ', code);
+      }
     } else {
       body.className = 'plain';
       body.textContent = message;
