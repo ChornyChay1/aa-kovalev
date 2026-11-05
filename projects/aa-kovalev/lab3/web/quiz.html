@@ -1,10 +1,38 @@
-<!doctype html><html lang="ru"><meta charset="utf-8">
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>$title</title>
-<style>body{font:17px system-ui;max-width:720px;margin:2rem auto;padding:0 1rem}
-label{display:block;padding:.45rem}fieldset{margin:1rem 0}</style>
-<a href="/">← Чат</a><h1>$title</h1><form>$fields
-<button>Проверить</button></form><p role="status"></p>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #f5f7fb; color: #17243b; font: 16px/1.5 system-ui, sans-serif; }
+main { width: min(100%, 780px); margin: auto; padding: clamp(1rem, 4vw, 3rem); }
+.back { color: #2149af; font-weight: 600; }
+h1 { margin: .75rem 0 .25rem; font-size: clamp(1.65rem, 5vw, 2.4rem); }
+.intro { margin: 0 0 1.5rem; color: #495970; }
+fieldset { min-inline-size: 0; margin: 0 0 1rem; padding: .75rem 1rem 1rem; border: 1px solid #cad6e8; border-radius: .85rem; background: white; }
+legend { max-width: 100%; padding: 0 .35rem; font-weight: 650; white-space: pre-wrap; overflow-wrap: anywhere; }
+label { display: flex; align-items: baseline; gap: .65rem; margin-top: .45rem; padding: .65rem .8rem; border: 1px solid #e0e7f2; border-radius: .6rem; cursor: pointer; white-space: pre-wrap; overflow-wrap: anywhere; }
+label:hover, label:has(input:checked) { background: #eaf0fa; border-color: #8ca6dd; }
+input { flex: none; margin: 0; accent-color: #244fc0; }
+button { padding: .65rem 1rem; border: 0; border-radius: .6rem; background: #244fc0; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+button:hover { background: #1d419e; }
+:focus-visible { outline: 2px solid #244fc0; outline-offset: 3px; }
+[role="status"]:not(:empty) { padding: .75rem 1rem; border-radius: .6rem; background: #e3ecff; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">← Вернуться в чат</a>
+  <h1>$title</h1>
+  <p class="intro">Выберите один вариант ответа в каждом вопросе.</p>
+  <form>
+    $fields
+    <button>Проверить ответы</button>
+  </form>
+  <p role="status"></p>
+</main>
 <script>
 document.querySelector('form').onsubmit = async (event) => {
     event.preventDefault();
@@ -19,4 +47,6 @@ document.querySelector('form').onsubmit = async (event) => {
         status.textContent = response.ok ? `Результат: $${result.score} из $${result.total}` : result.detail;
     } catch { status.textContent = 'Сервис недоступен'; }
 };
-</script></html>
+</script>
+</body>
+</html>
