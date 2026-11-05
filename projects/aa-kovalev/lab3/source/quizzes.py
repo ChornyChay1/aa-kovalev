@@ -3,10 +3,27 @@ import json
 import sqlite3
 from contextlib import closing
 from uuid import uuid4
+from typing import Any, Self, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
 
 from settings import ROOT
+
+
+class QuizSummary(TypedDict):
+    quiz_id: str
+    title: str
+    url: str
+
+
+class QuizQuestion(TypedDict):
+    text: str
+    options: list[str]
+    correct: int
+
+
+class Quiz(QuizSummary):
+    questions: list[QuizQuestion]
 
 
 class Question(BaseModel):
@@ -15,7 +32,7 @@ class Question(BaseModel):
     correct: int = Field(ge=1, le=5)
 
     @model_validator(mode='after')
-    def validate_options(self):
+    def validate_options(self) -> Self:
         if self.correct > len(self.options):
             raise ValueError('Номер правильного варианта вне диапазона')
         if any(not option.strip() or len(option) > 250 for option in self.options):
@@ -23,18 +40,18 @@ class Question(BaseModel):
         return self
 
 
-def connect():
+def connect() -> sqlite3.Connection:
     db = sqlite3.connect(ROOT / 'quizzes.sqlite3')
     db.row_factory = sqlite3.Row
     db.execute('CREATE TABLE IF NOT EXISTS quizzes (id TEXT PRIMARY KEY, session TEXT, title TEXT, questions TEXT)')
     return db
 
 
-def public(row):
+def public(row: sqlite3.Row) -> QuizSummary:
     return {'quiz_id': row['id'], 'title': row['title'], 'url': '/quiz/' + row['id']}
 
 
-def get_quiz(quiz_id, session=None):
+def get_quiz(quiz_id: str, session: str | None = None) -> Quiz:
     with closing(connect()) as db:
         row = db.execute('SELECT * FROM quizzes WHERE id = ?', (quiz_id,)).fetchone()
     if row is None or (session is not None and row['session'] != session):
@@ -42,21 +59,25 @@ def get_quiz(quiz_id, session=None):
     return {**public(row), 'questions': json.loads(row['questions'])}
 
 
-def get_quiz_info(session, quiz_id):
+def get_quiz_info(session: str, quiz_id: str) -> dict[str, Any]:
     quiz = get_quiz(quiz_id, session)
-    for question in quiz['questions']:
-        del question['correct']
-    return quiz
+    return {
+        **quiz,
+        'questions': [{key: value for key, value in q.items() if key != 'correct'} for q in quiz['questions']],
+    }
 
 
-def list_quizes(session):
+def list_quizes(session: str) -> list[QuizSummary]:
     with closing(connect()) as db:
         rows = db.execute('SELECT id, title FROM quizzes WHERE session = ? ORDER BY rowid', (session,))
         return [public(row) for row in rows]
 
 
-def manage_quiz(session, action, quiz_id=None, title=None, questions=None,
-                question_number=None, question=None):
+def manage_quiz(
+    session: str, action: str, quiz_id: str | None = None, title: str | None = None,
+    questions: list[dict[str, Any]] | None = None, question_number: int | None = None,
+    question: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     with closing(connect()) as db, db:
         if action == 'create':
             if not title or not title.strip() or len(title) > 150 or not questions or len(questions) > 10:

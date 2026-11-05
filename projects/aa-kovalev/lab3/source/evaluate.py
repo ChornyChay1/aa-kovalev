@@ -3,20 +3,22 @@ import argparse
 import csv
 import json
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 from statistics import mean
+from typing import Any
 from uuid import NAMESPACE_URL, uuid5
-from langfuse import get_client, propagate_attributes
+from langfuse import Langfuse, get_client, propagate_attributes
 
 REVIEW_COLUMNS = ('success', 'error_category', 'comment')
 
 
-def average(values):
-    values = [v for v in values if v is not None]
-    return mean(values) if values else None
+def average(values: Iterable[int | float | None]) -> float | None:
+    present = [v for v in values if v is not None]
+    return mean(present) if present else None
 
 
-def retrieval_metrics(row, chunks, k):
+def retrieval_metrics(row: dict[str, Any], chunks: list[dict[str, Any]], k: int) -> dict[str, float]:
     pages = row['metadata']['relevant_pages'][row['turn']]
     if not pages:
         return {}
@@ -36,13 +38,13 @@ def retrieval_metrics(row, chunks, k):
             for name in ('recall@k', 'precision@k', 'mrr')}
 
 
-def score(lf, trace_id, name, value):
+def score(lf: Langfuse, trace_id: str, name: str, value: int | float | None) -> None:
     if value is not None:
         lf.create_score(trace_id=trace_id, name=name, value=float(value),
             score_id=str(uuid5(NAMESPACE_URL, trace_id + '/' + name)), data_type='NUMERIC')
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('folder', type=Path)
     args = parser.parse_args()

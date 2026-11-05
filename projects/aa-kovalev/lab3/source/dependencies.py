@@ -10,7 +10,7 @@ from ready_agent import ReadyAgent
 
 
 class LabProvider(Provider):
-    def __init__(self, index: Path | None = None):
+    def __init__(self, index: Path | None = None) -> None:
         super().__init__()
         self.index = index
 

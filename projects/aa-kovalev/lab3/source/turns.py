@@ -3,10 +3,13 @@ from time import perf_counter
 
 from langfuse import get_client, propagate_attributes
 
+from book_tools import BookTools
+from contracts import DialogueAgent, TurnMetrics, TurnResult
 from settings import CONFIG, cost
 
 
-def turn(agent, tools, question, session, agent_name, run_id):
+def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
+         agent_name: str, run_id: str) -> TurnResult:
     lf = get_client()
     tools.reset()
     tools.session = session
@@ -22,20 +25,26 @@ def turn(agent, tools, question, session, agent_name, run_id):
                 answer, stats = agent.answer(question)
             except Exception as error:
                 answer, stats = str(error), {'status': 'error', 'input_tokens': None, 'output_tokens': None}
-            stats['latency_seconds'] = perf_counter() - started
-            stats['tool_calls'] = len(tools.calls)
-            stats['tool_errors'] = sum('error' in c for c in tools.calls)
+            latency = perf_counter() - started
+            tool_errors = sum('error' in call for call in tools.calls)
             input_tokens = stats['input_tokens']
             output_tokens = stats['output_tokens']
-            stats['cost_usd'] = None
+            cost_usd = None
             if input_tokens is not None and output_tokens is not None:
-                stats['cost_usd'] = cost(input_tokens, output_tokens)
+                cost_usd = cost(input_tokens, output_tokens)
             if stats['status'] != 'success':
                 span.update(level='WARNING', status_message=stats['status'])
-            elif stats['tool_errors']:
+            elif tool_errors:
                 span.update(level='WARNING', status_message='tool_errors')
-            span.update(output=answer, metadata={**stats, 'config': CONFIG})
+            metrics: TurnMetrics = {
+                'latency_seconds': latency, 'tool_calls': len(tools.calls),
+                'tool_errors': tool_errors, 'cost_usd': cost_usd,
+            }
+            span.update(output=answer, metadata={**stats, **metrics, 'config': CONFIG})
             span.update_trace(output=answer)
-            return {'output': answer, **stats, 'calls': tools.calls.copy(),
-                    'retrievals': tools.retrievals.copy(), 'trace_id': span.trace_id,
-                    'trace_url': lf.get_trace_url(trace_id=span.trace_id), 'session_id': session}
+            return {
+                **stats, **metrics, 'output': answer,
+                'calls': tools.calls.copy(), 'retrievals': tools.retrievals.copy(),
+                'trace_id': span.trace_id, 'trace_url': lf.get_trace_url(trace_id=span.trace_id),
+                'session_id': session,
+            }

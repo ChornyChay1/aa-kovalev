@@ -5,20 +5,21 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
-from dishka import Scope, make_container
+from dishka import Container, Scope, make_container
 from langfuse import get_client
 from settings import ROOT, CONFIG
 from book_tools import BookTools
+from contracts import DialogueAgent
 from dependencies import LabProvider
 from agent import Agent
 from quizzes import get_quiz, list_quizes
 from ready_agent import ReadyAgent, instrument
 from turns import turn
 
-AGENTS = {'custom': Agent, 'smolagents': ReadyAgent}
+AGENTS: dict[str, type[DialogueAgent]] = {'custom': Agent, 'smolagents': ReadyAgent}
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--agent', choices=[*AGENTS, 'both'], default='both')
     parser.add_argument('--chat', action='store_true')
@@ -41,15 +42,15 @@ def main():
             lf.flush()
 
 
-def run_batch(args, run_id, batch):
+def run_batch(args: argparse.Namespace, run_id: str, batch: Container) -> None:
     tools = batch.get(BookTools)
     if args.chat:
         agent_name = 'custom' if args.agent == 'both' else args.agent
         with batch() as dialogue:
             agent = dialogue.get(AGENTS[agent_name])
             while question := input('Вы (пустая строка — выход): ').strip():
-                row = turn(agent, tools, question, run_id, agent_name, run_id)
-                print(row['output'], '\n', row['trace_url'])
+                reply = turn(agent, tools, question, run_id, agent_name, run_id)
+                print(reply['output'], '\n', reply['trace_url'])
         return
     tasks = json.loads((ROOT / 'tasks.json').read_text(encoding='utf-8'))
     if args.tasks:
@@ -76,7 +77,7 @@ def run_batch(args, run_id, batch):
                 with batch() as dialogue:
                     agent = dialogue.get(AGENTS[name])
                     for i, question in enumerate(task['input']):
-                        row = turn(agent, tools, question, session, name, run_id)
+                        row = dict(turn(agent, tools, question, session, name, run_id))
                         row['quizzes'] = [get_quiz(quiz['quiz_id'], session) for quiz in list_quizes(session)]
                         row.update(agent=name, task_id=task['id'], turn=i, input=question,
                             expected_output=task['expected_output'][i], metadata=task['metadata'])

@@ -20,7 +20,12 @@ from pydantic_ai_harness import (
     ClearToolResults, FallbackCompaction, SlidingWindowCompaction, SummarizingCompaction,
 )
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
-from transformers import AutoTokenizer
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.usage import RunUsage
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
+
+from book_tools import BookTools
+from contracts import AgentStats, ToolResult
 
 from quizzes import Question
 from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS, SYSTEM
@@ -33,7 +38,7 @@ TOOL_OUTPUT_CHARS = 1400
 
 
 @lru_cache(maxsize=1)
-def tokenizer():
+def tokenizer() -> PreTrainedTokenizerBase:
     return AutoTokenizer.from_pretrained(CONFIG['tokenizer'])
 
 
@@ -48,9 +53,9 @@ def starts_a_turn(message: ModelMessage) -> bool:
 
 
 class Agent:
-    def __init__(self, tools):
+    def __init__(self, tools: BookTools) -> None:
         self.tools = tools
-        self.history = []
+        self.history: list[ModelMessage] = []
         self.trimmed = False
         self.loop = asyncio.Runner()
         self.http = httpx2.AsyncClient(trust_env=False)
@@ -82,29 +87,29 @@ class Agent:
             ],
             tools=[self.search_book, self.manage_quiz, self.list_quizes, self.get_quiz_info])
 
-    def search_book(self, query: str) -> list | dict:
+    def search_book(self, query: str) -> ToolResult:
         """Найти материал в учебнике через RAG Лабы 2."""
         return self.tools.call('search_book', {'query': query})
 
     def manage_quiz(self, action: Literal['create', 'update', 'delete'],
                     quiz_id: str | None = None, title: str | None = None,
                     questions: list[Question] | None = None,
-                    question_number: int | None = None, question: Question | None = None) -> dict:
+                    question_number: int | None = None, question: Question | None = None) -> ToolResult:
         """Создать квиз, заменить один вопрос или удалить квиз. Нумерация с 1."""
         args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
                     questions=[q.model_dump() for q in questions] if questions else None,
                     question=question.model_dump() if question else None)
         return self.tools.call('manage_quiz', args)
 
-    def list_quizes(self) -> list | dict:
+    def list_quizes(self) -> ToolResult:
         """Получить ID, названия и ссылки квизов в этой сессии."""
         return self.tools.call('list_quizes', {})
 
-    def get_quiz_info(self, quiz_id: str) -> dict:
+    def get_quiz_info(self, quiz_id: str) -> ToolResult:
         """Получить вопросы и варианты ответов квиза по ID."""
         return self.tools.call('get_quiz_info', {'quiz_id': quiz_id})
 
-    def count(self, messages):
+    def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages).decode()
         return count_text(SYSTEM + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
 
@@ -132,22 +137,25 @@ class Agent:
                 span.update(output={'tokens': after, 'messages_before': len(messages),
                                     'messages_after': len(compacted)})
                 messages = compacted
-        self.stats['max_context'] = max(self.stats['max_context'], after)
+        self.stats['max_context'] = max(self.stats['max_context'] or 0, after)
         return messages
 
-    def model_settings(self, max_tokens):
+    def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
         if remaining <= 0:
             raise TimeoutError('Исчерпан таймаут реплики')
         return {'max_tokens': max_tokens, 'temperature': CONFIG['temperature'], 'timeout': remaining}
 
-    def add_usage(self, usage):
-        self.stats['input_tokens'] += usage.input_tokens
-        self.stats['output_tokens'] += usage.output_tokens
+    def add_usage(self, usage: RunUsage) -> None:
+        self.stats['input_tokens'] = (self.stats['input_tokens'] or 0) + usage.input_tokens
+        self.stats['output_tokens'] = (self.stats['output_tokens'] or 0) + usage.output_tokens
         self.stats['steps'] += usage.requests
 
-    def answer(self, question):
-        self.stats = dict(input_tokens=0, output_tokens=0, steps=0, trimmed=False, max_context=0, status='success')
+    def answer(self, question: str) -> tuple[str, AgentStats]:
+        self.stats: AgentStats = {
+            'input_tokens': 0, 'output_tokens': 0, 'steps': 0,
+            'trimmed': False, 'max_context': 0, 'status': 'success',
+        }
         try:
             request = self.agent.run(question, message_history=self.history,
                 usage_limits=UsageLimits(request_limit=CONFIG['max_steps']),
@@ -165,6 +173,6 @@ class Agent:
         self.stats['context_tokens'] = self.count(self.history)
         return answer, self.stats
 
-    def close(self):
+    def close(self) -> None:
         self.loop.run(self.http.aclose())
         self.loop.close()

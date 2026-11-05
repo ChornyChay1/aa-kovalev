@@ -14,6 +14,6 @@ BASE_URL = os.getenv('LLM_BASE_URL', 'http://localhost:11434/v1')
 API_KEY = os.getenv('LLM_API_KEY', 'ollama')
 
 
-def cost(input_tokens, output_tokens):
+def cost(input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * CONFIG['input_usd_per_million']
             + output_tokens * CONFIG['output_usd_per_million']) / 1_000_000

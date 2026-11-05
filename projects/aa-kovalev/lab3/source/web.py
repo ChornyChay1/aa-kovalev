@@ -1,5 +1,5 @@
 """Local quiz forms and chat API."""
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import ExitStack, asynccontextmanager
 from dataclasses import dataclass
 from html import escape
@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from agent import Agent
 from book_tools import BookTools
 from dependencies import LabProvider
-from quizzes import get_quiz
+from quizzes import Quiz, get_quiz
 from turns import turn
 from settings import ROOT
 
@@ -31,7 +31,7 @@ class Dialogue:
 
 
 class ChatSessions:
-    def __init__(self, container: Container, scopes: ExitStack):
+    def __init__(self, container: Container, scopes: ExitStack) -> None:
         self.container = container
         self.scopes = scopes
         self.dialogues: dict[str, Dialogue] = {}
@@ -64,7 +64,7 @@ class WebProvider(Provider):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
@@ -84,26 +84,33 @@ class Chat(BaseModel):
     session: str | None = None
 
 
+class ChatResponse(BaseModel):
+    session: str
+    answer: str
+    status: str
+    trace_url: str | None
+
+
 class Attempt(BaseModel):
     answers: list[int]
 
 
 @app.get('/', response_class=HTMLResponse)
-def home():
+def home() -> str:
     return (ROOT / 'web/index.html').read_text(encoding='utf-8')
 
 
 @app.post('/api/chat')
 @inject_sync
-def chat(request: Chat, sessions: FromDishka[ChatSessions]):
+def chat(request: Chat, sessions: FromDishka[ChatSessions]) -> ChatResponse:
     session, dialogue = sessions.get(request.session)
     with dialogue.lock:
         row = turn(dialogue.agent, dialogue.tools, request.message, session, 'custom', 'web')
-    return {'session': session, 'answer': row['output'], 'status': row['status'],
-            'trace_url': row['trace_url']}
+    return ChatResponse(session=session, answer=row['output'], status=row['status'],
+                        trace_url=row['trace_url'])
 
 
-def quiz_or_404(quiz_id):
+def quiz_or_404(quiz_id: str) -> Quiz:
     try:
         return get_quiz(quiz_id)
     except ValueError as error:
@@ -111,7 +118,7 @@ def quiz_or_404(quiz_id):
 
 
 @app.get('/quiz/{quiz_id}', response_class=HTMLResponse)
-def quiz_page(quiz_id: str):
+def quiz_page(quiz_id: str) -> str:
     quiz = quiz_or_404(quiz_id)
     fields = []
     for i, question in enumerate(quiz['questions']):
@@ -124,7 +131,7 @@ def quiz_page(quiz_id: str):
 
 
 @app.post('/quiz/{quiz_id}/grade')
-def grade(quiz_id: str, attempt: Attempt):
+def grade(quiz_id: str, attempt: Attempt) -> dict[str, int]:
     questions = quiz_or_404(quiz_id)['questions']
     if len(attempt.answers) != len(questions) or any(
         not 1 <= a <= len(q['options']) for a, q in zip(attempt.answers, questions)

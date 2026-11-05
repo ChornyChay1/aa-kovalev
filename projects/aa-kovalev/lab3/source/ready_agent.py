@@ -1,5 +1,10 @@
 """Готовый smolagents, без изменения его цикла и стратегии памяти."""
+from typing import Any
+
 import httpx
+
+from book_tools import BookTools
+from contracts import AgentStats, ToolResult, TurnStatus
 from smolagents import Tool, ToolCallingAgent, OpenAIServerModel
 from smolagents.memory import ActionStep
 from openinference.instrumentation.smolagents import SmolagentsInstrumentor
@@ -7,7 +12,7 @@ from settings import CONFIG, SYSTEM, SCHEMAS, BASE_URL, API_KEY
 
 
 class BookTool(Tool):
-    def __init__(self, schema, tools):
+    def __init__(self, schema: dict[str, Any], tools: BookTools) -> None:
         spec = schema['function']
         self.name, self.description = spec['name'], spec['description']
         self.inputs = spec['parameters']['properties']
@@ -17,26 +22,26 @@ class BookTool(Tool):
 
 
 class SearchBookTool(BookTool):
-    def forward(self, query: str):
+    def forward(self, query: str) -> ToolResult:
         return self.tools.call(self.name, {'query': query})
 
 
 class ManageQuizTool(BookTool):
     def forward(self, action: str, quiz_id: str | None = None,
-                title: str | None = None, questions: list[dict] | None = None,
-                question_number: int | None = None, question: dict | None = None):
+                title: str | None = None, questions: list[dict[str, Any]] | None = None,
+                question_number: int | None = None, question: dict[str, Any] | None = None) -> ToolResult:
         return self.tools.call(self.name, dict(
             action=action, quiz_id=quiz_id, title=title, questions=questions,
             question_number=question_number, question=question))
 
 
 class ListQuizesTool(BookTool):
-    def forward(self):
+    def forward(self) -> ToolResult:
         return self.tools.call(self.name, {})
 
 
 class GetQuizInfoTool(BookTool):
-    def forward(self, quiz_id: str):
+    def forward(self, quiz_id: str) -> ToolResult:
         return self.tools.call(self.name, {'quiz_id': quiz_id})
 
 
@@ -49,7 +54,7 @@ TOOL_CLASSES = {
 
 
 class ReadyAgent:
-    def __init__(self, tools):
+    def __init__(self, tools: BookTools) -> None:
         self.model = OpenAIServerModel(model_id=CONFIG['model'], api_base=BASE_URL,
             api_key=API_KEY, client_kwargs={'timeout': CONFIG['timeout_seconds'], 'max_retries': 0,
                 'http_client': httpx.Client(trust_env=False)},
@@ -59,7 +64,8 @@ class ReadyAgent:
             max_steps=CONFIG['max_steps'], verbosity_level=0)
         self.first = True
 
-    def answer(self, question):
+    def answer(self, question: str) -> tuple[str, AgentStats]:
+        status: TurnStatus
         start = len(self.agent.memory.steps)
         reset, self.first = self.first, False
         try:
@@ -79,10 +85,10 @@ class ReadyAgent:
             'trimmed': None, 'max_context': None, 'context_tokens': None,
         }
 
-    def close(self):
+    def close(self) -> None:
         self.model.client.close()
 
 
-def instrument():
+def instrument() -> None:
     # Официальная интеграция: LLM, итерации и инструменты → OpenTelemetry → Langfuse.
     SmolagentsInstrumentor().instrument()
