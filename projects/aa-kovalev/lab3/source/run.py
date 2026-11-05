@@ -10,6 +10,7 @@ from langfuse import get_client, propagate_attributes
 from settings import ROOT, CONFIG, cost
 from book_tools import BookTools
 from agent import Agent
+from quizzes import get_quiz, list_quizes
 from ready_agent import ReadyAgent, instrument
 
 AGENTS = {'custom': Agent, 'smolagents': ReadyAgent}
@@ -18,6 +19,7 @@ AGENTS = {'custom': Agent, 'smolagents': ReadyAgent}
 def turn(agent, tools, question, session, agent_name, run_id):
     lf = get_client()
     tools.reset()
+    tools.session = session
     started = perf_counter()
     with lf.start_as_current_observation(name='user-turn', input=question) as span:
         with propagate_attributes(user_id=CONFIG['user_id'], session_id=session,
@@ -93,6 +95,7 @@ def main():
                     try:
                         for i, question in enumerate(task['input']):
                             row = turn(agent, tools, question, session, name, run_id)
+                            row['quizzes'] = [get_quiz(quiz['quiz_id'], session) for quiz in list_quizes(session)]
                             row.update(agent=name, task_id=task['id'], turn=i, input=question,
                                 expected_output=task['expected_output'][i], metadata=task['metadata'])
                             output.write(json.dumps(row, ensure_ascii=False) + '\n'); output.flush()

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Квизы по Python</title>
+<style>
+body { font: 17px system-ui; max-width: 760px; margin: 3rem auto; padding: 0 1rem; }
+article { white-space: pre-wrap; background: #edf2fa; border-radius: 10px; padding: 1rem; margin: .75rem 0; }
+textarea { box-sizing: border-box; width: 100%; min-height: 6rem; font: inherit; padding: .75rem; }
+button { padding: .55rem 1rem; margin-top: .5rem; }
+</style>
+<h1>Квизы по Python</h1>
+<p>Попросите агента составить тест по учебнику, посмотреть список квизов или изменить вопрос.</p>
+<section id="history" aria-live="polite"></section>
+<form>
+  <textarea required maxlength="6000" aria-label="Сообщение" placeholder="Создай квиз по циклам на три вопроса"></textarea>
+  <button>Отправить</button>
+  <button type="button" id="reset">Новый диалог</button>
+</form>
+<p id="status" role="status"></p>
+<script>
+const historyPanel = document.querySelector('#history');
+const form = document.querySelector('form');
+const input = form.querySelector('textarea');
+const status = document.querySelector('#status');
+let session;
+function append(label, message, links = false) {
+  const item = document.createElement('article');
+  item.append(label + '\n');
+  if (links) {
+    for (const part of message.split(/(\/quiz\/[a-f0-9]{32})/g)) {
+      if (part.startsWith('/quiz/')) {
+        const link = document.createElement('a');
+        link.href = part;
+        link.textContent = part;
+        item.append(link);
+      } else item.append(part);
+    }
+  } else item.append(message);
+  historyPanel.append(item);
+  return item;
+}
+document.querySelector('#reset').onclick = () => {
+  session = undefined;
+  historyPanel.replaceChildren();
+  status.textContent = '';
+};
+form.onsubmit = async (event) => {
+  event.preventDefault();
+  const message = input.value.trim();
+  if (!message) return;
+  form.querySelectorAll('button').forEach(button => button.disabled = true);
+  append('Вы', message);
+  status.textContent = 'Агент работает…';
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session, message})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail);
+    session = result.session;
+    const item = append('Агент', result.answer, true);
+    if (result.trace_url && /^https?:\/\//.test(result.trace_url)) {
+      const link = document.createElement('a');
+      link.href = result.trace_url;
+      link.textContent = 'Трейс Langfuse';
+      item.append('\n', link);
+    }
+    input.value = '';
+    status.textContent = '';
+  } catch (error) { status.textContent = error.message; }
+  finally { form.querySelectorAll('button').forEach(button => button.disabled = false); }
+};
+</script>
+</html>

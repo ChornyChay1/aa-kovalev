@@ -1,5 +1,144 @@
 [
-  {"type":"function","function":{"name":"search_book","description":"Поиск фрагментов в RAG Лабы 2. Возвращает текст, ID, PDF-страницы и score. Можно повторить с другим запросом.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Поисковый запрос по содержанию учебника"}},"required":["query"],"additionalProperties":false}}},
-  {"type":"function","function":{"name":"read_page","description":"Прочитать полную PDF-страницу из подготовленного Markdown учебника. Номер можно узнать из search_book.","parameters":{"type":"object","properties":{"page":{"type":"integer","description":"Номер PDF-страницы, не печатная нумерация"}},"required":["page"],"additionalProperties":false}}},
-  {"type":"function","function":{"name":"calculate","description":"Вычислить арифметическое выражение: числа, скобки, +, -, *, /, //, %. Без имён, функций и Python-кода.","parameters":{"type":"object","properties":{"expression":{"type":"string","description":"Арифметическое выражение"}},"required":["expression"],"additionalProperties":false}}}
+  {
+    "type": "function",
+    "function": {
+      "name": "search_book",
+      "description": "Найти материал в учебнике через RAG",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "description": "query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_quiz",
+      "description": "create: title и questions; update: quiz_id, question_number с 1 и question; delete: quiz_id",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "description": "action",
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "delete"
+            ]
+          },
+          "quiz_id": {
+            "description": "quiz_id",
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "description": "title",
+            "type": "string",
+            "nullable": true
+          },
+          "questions": {
+            "description": "questions",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "correct": {
+                  "type": "integer",
+                  "description": "Номер правильного варианта с 1"
+                }
+              },
+              "required": [
+                "text",
+                "options",
+                "correct"
+              ]
+            },
+            "nullable": true
+          },
+          "question_number": {
+            "description": "question_number",
+            "type": "integer",
+            "nullable": true
+          },
+          "question": {
+            "description": "question",
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "correct": {
+                "type": "integer",
+                "description": "Номер правильного варианта с 1"
+              }
+            },
+            "required": [
+              "text",
+              "options",
+              "correct"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_quizes",
+      "description": "Список квизов текущей сессии",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_quiz_info",
+      "description": "Получить вопросы и варианты ответа квиза",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "quiz_id": {
+            "description": "quiz_id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quiz_id"
+        ]
+      }
+    }
+  }
 ]
