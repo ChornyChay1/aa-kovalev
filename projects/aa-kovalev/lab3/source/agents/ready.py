@@ -1,4 +1,6 @@
 """Готовый smolagents, без изменения его цикла и стратегии памяти."""
+from uuid import uuid4
+
 import httpx
 
 from models.domain import TurnStatus
@@ -7,15 +9,37 @@ from tools.book import BookTools
 from tools.smolagents_tools import build_tools
 from smolagents import ToolCallingAgent, OpenAIServerModel
 from smolagents.memory import ActionStep
+from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction
 from openinference.instrumentation.smolagents import SmolagentsInstrumentor
 from services.prompts import system_prompt
 from settings import API_KEY, BASE_URL, CONFIG
 
 
+class OllamaToolModel(OpenAIServerModel):
+    def generate(self, messages, *, tools_to_call_from=None, **kwargs) -> ChatMessage:
+        message = super().generate(messages, tools_to_call_from=tools_to_call_from, **kwargs)
+        # Ollama can return a finished text reply even when tool_choice is required.
+        if (
+            tools_to_call_from
+            and not message.tool_calls
+            and isinstance(message.content, str)
+            and message.content.strip()
+            and message.raw.choices[0].finish_reason == 'stop'
+        ):
+            message.tool_calls = [ChatMessageToolCall(
+                id=uuid4().hex,
+                type='function',
+                function=ChatMessageToolCallFunction(
+                    name='final_answer', arguments={'answer': message.content},
+                ),
+            )]
+        return message
+
+
 class ReadyAgent:
     def __init__(self, tools: BookTools) -> None:
         instructions, self.prompt_version = system_prompt()
-        self.model = OpenAIServerModel(model_id=CONFIG['model'], api_base=BASE_URL,
+        self.model = OllamaToolModel(model_id=CONFIG['model'], api_base=BASE_URL,
             api_key=API_KEY, client_kwargs={'timeout': CONFIG['timeout_seconds'], 'max_retries': 0,
                 'http_client': httpx.Client(trust_env=False)},
             temperature=CONFIG['temperature'], max_tokens=CONFIG['max_output_tokens'])
