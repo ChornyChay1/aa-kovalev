@@ -20,7 +20,7 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 from agent import Agent
 from book_tools import BookTools
-from quizzes import Quiz, get_quiz, list_quizes
+from quizzes import WEB_QUIZ_COLLECTION, Quiz, get_quiz, list_quizes, migrate_web_quizzes
 from turns import turn
 from settings import LAB2, ROOT
 
@@ -81,6 +81,7 @@ class ChatSessions:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await run_in_threadpool(migrate_web_quizzes)
     sessions = ChatSessions()
     app.state.chat_sessions = sessions
     try:
@@ -134,10 +135,10 @@ def home() -> str:
     return (ROOT / 'web/index.html').read_text(encoding='utf-8')
 
 
-def verify_quiz_links(answer: str, session: str) -> str:
+def verify_quiz_links(answer: str) -> str:
     if not QUIZ_LINK.search(answer):
         return answer
-    urls = {quiz['url'] for quiz in list_quizes(session)}
+    urls = {quiz['url'] for quiz in list_quizes(WEB_QUIZ_COLLECTION)}
     return QUIZ_LINK.sub(
         lambda match: f"{match['label']}({match['path']})" if match['path'] in urls
         else 'Ссылка на квиз недоступна.',
@@ -152,7 +153,7 @@ def dialogues() -> list[Transcript]:
     transcripts = [Transcript.model_validate_json(row[0]) for row in rows]
     for transcript in transcripts:
         for entry in transcript.turns:
-            entry.result.answer = verify_quiz_links(entry.result.answer, transcript.session)
+            entry.result.answer = verify_quiz_links(entry.result.answer)
     return transcripts
 
 
@@ -168,12 +169,13 @@ def run_chat(session: str, dialogue: Dialogue, message: str,
     with dialogue.lock:
         dialogue.agent.on_event = emit
         try:
-            row = turn(dialogue.agent, dialogue.tools, message, session, 'custom', 'web')
+            row = turn(dialogue.agent, dialogue.tools, message, session, 'custom', 'web',
+                       quiz_collection=WEB_QUIZ_COLLECTION)
         finally:
             dialogue.agent.on_event = None
         pages = dict.fromkeys(hit['page'] for hits in row.retrievals for hit in hits)
         book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
-        result = ChatResponse(session=session, answer=verify_quiz_links(row.output, session),
+        result = ChatResponse(session=session, answer=verify_quiz_links(row.output),
                               status=row.status,
                               trace_url=row.trace_url, book_pages=book_pages)
         with closing(connect_dialogues()) as db, db:

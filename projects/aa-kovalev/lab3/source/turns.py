@@ -10,10 +10,10 @@ from settings import CONFIG, cost
 
 
 def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
-         agent_name: str, run_id: str) -> TurnResult:
+         agent_name: str, run_id: str, *, quiz_collection: str | None = None) -> TurnResult:
     lf = get_client()
     tools.reset()
-    tools.session = session
+    tools.session = quiz_collection if quiz_collection is not None else session
     started = perf_counter()
     tags = [agent_name, CONFIG['version'], CONFIG['model'], run_id]
     trace_name = f'{agent_name}-turn'

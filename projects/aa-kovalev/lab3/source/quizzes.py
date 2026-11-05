@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from settings import ROOT
 
+WEB_QUIZ_COLLECTION = 'web'
+
 
 class QuizSummary(TypedDict):
     quiz_id: str
@@ -48,6 +50,14 @@ def connect() -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.execute('CREATE TABLE IF NOT EXISTS quizzes (id TEXT PRIMARY KEY, session TEXT, title TEXT, questions TEXT)')
     return db
+
+
+def migrate_web_quizzes() -> None:
+    # Старые веб-диалоги использовали uuid4().hex. У CLI ID сессии содержит дефисы.
+    with closing(connect()) as db, db:
+        db.execute("""UPDATE quizzes SET session = ?
+                      WHERE length(session) = 32 AND session NOT GLOB '*[^0-9a-f]*'""",
+                   (WEB_QUIZ_COLLECTION,))
 
 
 def public(row: sqlite3.Row) -> QuizSummary:
@@ -95,7 +105,7 @@ def manage_quiz(
         db.execute('BEGIN IMMEDIATE')
         row = db.execute('SELECT * FROM quizzes WHERE id = ? AND session = ?', (quiz_id, session)).fetchone()
         if row is None:
-            raise ValueError('Квиз не найден в этой сессии')
+            raise ValueError('Квиз не найден в доступной коллекции')
         if action == 'delete':
             db.execute('DELETE FROM quizzes WHERE id = ?', (quiz_id,))
             return {'quiz_id': quiz_id, 'deleted': True}

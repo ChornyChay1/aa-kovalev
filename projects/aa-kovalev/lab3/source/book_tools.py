@@ -56,7 +56,7 @@ class BookTools:
             quizzes = list_quizes(self.session)
             result: ToolArguments = {'quizzes': quizzes, 'count': len(quizzes)}
             if not quizzes:
-                result['message'] = 'В текущем диалоге пока нет квизов.'
+                result['message'] = 'В доступной коллекции пока нет квизов.'
             return result
         if name == 'get_quiz_info':
             return get_quiz_info(self.session, **arguments)
