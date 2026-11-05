@@ -79,7 +79,7 @@ class Agent:
             fallback_on=(ModelAPIError, UnexpectedModelBehavior, UsageLimitExceeded),
             tokenizer=count_text)
         self.agent = PydanticAgent(
-            model, instructions=SYSTEM, retries=1,
+            model, instructions=SYSTEM, retries=2,
             capabilities=[
                 Instrumentation(),
                 ToolOutputLimits(bands=[Band(TOOL_OUTPUT_CHARS, Truncate(max_chars=TOOL_OUTPUT_CHARS))]),

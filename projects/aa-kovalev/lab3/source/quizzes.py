@@ -29,7 +29,10 @@ class Quiz(QuizSummary):
 class Question(BaseModel):
     text: str = Field(min_length=1, max_length=500)
     options: list[str] = Field(min_length=2, max_length=5)
-    correct: int = Field(ge=1, le=5)
+    correct: int = Field(
+        ge=1, le=5,
+        description='Номер правильного варианта в options: 1 — первый, 2 — второй и так далее. Нуля быть не может.',
+    )
 
     @model_validator(mode='after')
     def validate_options(self) -> Self:
