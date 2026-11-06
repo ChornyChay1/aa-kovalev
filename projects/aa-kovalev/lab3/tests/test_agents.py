@@ -2,9 +2,10 @@
 import os
 import unittest
 from dataclasses import dataclass
+from contextlib import nullcontext
 from time import monotonic
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ['LANGFUSE_TRACING_ENABLED'] = 'false'
 
@@ -13,11 +14,15 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RunUsage, RequestUsage
 
 from agents.custom import Agent
+from models.schemas import AgentStats
 from agents.ready import CodingAgent, OllamaToolModel, ReadyAgent
 from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction, MessageRole
 from task_data import load_tasks
 from tool_metrics import check_tools
 from tools.book import BookTools
+from services.turns import turn
+from constants import MAX_USER_INPUT_CONTEXT_RATIO
+from settings import CONFIG
 from tools.result_budget import count_result, limit_result
 from tools.pydantic_tools import build_tools as custom_tools
 from tools.smolagents_tools import build_tools as ready_tools
@@ -357,6 +362,43 @@ class OllamaAdapterTests(unittest.TestCase):
         action = self.call('manage_quiz', {'action': 'create', 'title': 'Списки'})
         message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
         self.assertEqual(self.generate(message).tool_calls, [action])
+
+
+class UserInputLimitTests(unittest.TestCase):
+    def test_oversized_prompt_rejected_without_model_call(self):
+        limit = int(CONFIG['context_tokens'] * MAX_USER_INPUT_CONTEXT_RATIO)
+        span = SimpleNamespace(
+            trace_id='a' * 32, id='b' * 16,
+            update=MagicMock(), set_trace_io=MagicMock(),
+        )
+        lf = SimpleNamespace(
+            start_as_current_observation=lambda **kwargs: nullcontext(span))
+        tools = BookTools.__new__(BookTools)
+        agent = SimpleNamespace(
+            prompt_version='test',
+            answer=MagicMock(return_value=('Готово', AgentStats(
+                status='success', input_tokens=2, output_tokens=2)))),
+        )
+
+        with patch('services.turns.get_client', return_value=lf), \
+                patch('services.turns.propagate_attributes', return_value=nullcontext()), \
+                patch('services.turns.trace_url', return_value=None):
+            with patch('services.turns.count_text', return_value=limit + 1):
+                result = turn(agent, tools, 'Слишком длинный запрос',
+                              'session', 'custom', 'run')
+            self.assertEqual(result.status, 'error')
+            self.assertIn('Сократите сообщение', result.output)
+            self.assertEqual(result.steps, 0)
+            self.assertEqual(result.tool_calls, 0)
+            agent.answer.assert_not_called()
+            self.assertTrue(any(call.kwargs.get('metadata', {}).get('user_input_rejected')
+                                for call in span.update.call_args_list))
+
+            with patch('services.turns.count_text', return_value=limit):
+                accepted = turn(agent, tools, 'Допустимый запрос',
+                                'session', 'custom', 'run')
+            self.assertEqual(accepted.status, 'success')
+            agent.answer.assert_called_once_with('Допустимый запрос')
 
 
 if __name__ == '__main__':
