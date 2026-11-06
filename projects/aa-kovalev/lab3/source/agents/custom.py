@@ -14,7 +14,7 @@ from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLim
 from pydantic_ai.capabilities import Instrumentation, PrepareTools
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
-    ModelMessagesTypeAdapter, ModelRequest, UserPromptPart, repair_messages,
+    ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart, repair_messages,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -33,6 +33,7 @@ from constants import (
 )
 from models.schemas import AgentStats
 from tools.book import BookTools
+from tools.result_budget import count_result, limit_result
 from tools.pydantic_tools import build_tools
 from services.prompts import system_prompt
 from settings import API_KEY, BASE_URL, CONFIG, ROOT
@@ -122,6 +123,60 @@ class ObservedCompaction(TieredCompaction):
                         'messages_after': len(messages)
                     }
                 )
+        # Если новый результат инструмента переполняет уже очищенный
+        # контекст, ограничиваем именно его, не стирая текущий запрос и
+        # вызовы инструментов. Полный результат остался в BookTools / Langfuse.
+        if self.measure(messages) > INPUT_BUDGET:
+            with get_client().start_as_current_observation(
+                name='tool-output-trim',
+                input={'tokens': self.measure(messages), 'budget': INPUT_BUDGET},
+            ) as span:
+                reduced = []
+                while self.measure(messages) > INPUT_BUDGET:
+                    overflow = self.measure(messages) - INPUT_BUDGET
+                    candidates = [
+                        (i, j, part, count_result(part.content))
+                        for i, message in enumerate(messages)
+                        if isinstance(message, ModelRequest)
+                        for j, part in enumerate(message.parts)
+                        if isinstance(part, ToolReturnPart)
+                        and isinstance(part.content, (dict, list))
+                    ]
+                    # Сначала результаты поиска, затем другие объёмные
+                    # данные; квитанции manage_quiz — последними.
+                    candidates.sort(key=lambda x: (
+                        x[2].tool_name == MANAGE_QUIZ,
+                        x[2].tool_name != 'search_book',
+                        -x[3],
+                    ))
+                    for i, j, part, size in candidates:
+                        budget = max(128, size - overflow - 32)
+                        if budget >= size:
+                            continue
+                        try:
+                            content, truncated = limit_result(part.content, budget)
+                        except ValueError:
+                            continue
+                        if not truncated or count_result(content) >= size:
+                            continue
+                        message = messages[i]
+                        parts = list(message.parts)
+                        parts[j] = replace(part, content=content)
+                        messages[i] = replace(message, parts=parts)
+                        reduced.append({
+                            'tool': part.tool_name,
+                            'before_tokens': size,
+                            'after_tokens': count_result(content),
+                        })
+                        changed = True
+                        break
+                    else:
+                        break
+                span.update(output={
+                    'tokens': self.measure(messages),
+                    'fits': self.measure(messages) <= INPUT_BUDGET,
+                    'truncated_tools': reduced,
+                })
         ctx.messages[:] = messages
         self.observe(ctx, changed)
         return replace(request_context, messages=messages)
