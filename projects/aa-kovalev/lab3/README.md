@@ -49,7 +49,7 @@ uv run --locked uvicorn app:app --app-dir source --host 127.0.0.1 --port 8000
 В `source/agents/custom.py` работает `ObservedCompaction` — собственная обёртка над библиотечным `TieredCompaction`:
 
 1. Отделяет старые ходы от текущего; **текущий ход не сокращает**.
-2. Применяет `ClearToolResults → SummarizingCompaction → SlidingWindowCompaction` к старой истории по необходимости. Фокус сводки задан в `prompts/summary_focus.txt`.
+2. Применяет `ClearToolResults → SummarizingCompaction → SlidingWindowCompaction` к старой истории по необходимости. Фокус сводки загружается из Langfuse Prompt Management (`summary_focus`, метка `production` по умолчанию). Если Langfuse недоступен или промпт отсутствует, используется локальный `prompts/summary_focus.txt`. Загрузка выполняется один раз за процесс.
 3. Если бюджет всё ещё превышен, удаляет старые завершённые ходы. После очистки повторно проверяет весь запрос: если результаты инструментов **текущего хода** не помещаются, сокращает их по токенам с пометкой. Пишет `context-trim`, `tool-output-trim` и `context-check` в Langfuse.
 4. Сохраняет историю и после неуспешных вызовов через `capture_run_messages` и `repair_messages`.
 
