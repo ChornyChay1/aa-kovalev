@@ -5,7 +5,7 @@ from contextlib import closing
 from typing import Any
 from uuid import uuid4
 
-from constants import APPEND_QUESTIONS, CREATE, DELETE, MAX_OPTIONS, MAX_QUESTIONS, MAX_QUIZ_TITLE, UPDATE, WEB_QUIZ_COLLECTION
+from constants import APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MAX_OPTIONS, MAX_QUESTIONS, MAX_QUIZ_TITLE, UPDATE, WEB_QUIZ_COLLECTION
 from models.domain import Quiz, QuizSummary
 from models.schemas import Question
 from settings import ROOT
@@ -85,10 +85,12 @@ def manage_quiz(
         if row is None:
             raise ValueError('Квиз не найден в доступной коллекции')
         if action == DELETE:
+            if any(value is not None for value in (question_number, question, questions, option, option_number)):
+                raise ValueError('delete удаляет весь квиз. Для удаления вопроса используйте delete_question.')
             db.execute('DELETE FROM quizzes WHERE id = ?', (quiz_id,))
             return {'quiz_id': quiz_id, 'deleted': True}
-        if action not in (UPDATE, APPEND_QUESTIONS):
-            raise ValueError('Допустимые действия: create, update, delete, append_questions')
+        if action not in (UPDATE, APPEND_QUESTIONS, DELETE_QUESTION):
+            raise ValueError('Допустимые действия: create, update, delete, append_questions, delete_question')
         data = json.loads(row['questions'])
         if action == APPEND_QUESTIONS:
             if not questions:
@@ -100,6 +102,12 @@ def manage_quiz(
             db.execute('UPDATE quizzes SET questions = ? WHERE id = ?', (json.dumps(data), quiz_id))
             return {**public(row), 'added_question_numbers': list(range(first_number, len(data) + 1))}
         index = question_index(question_number, len(data))
+        if action == DELETE_QUESTION:
+            if len(data) == 1:
+                raise ValueError('В квизе должен остаться хотя бы один вопрос')
+            del data[index]
+            db.execute('UPDATE quizzes SET questions = ? WHERE id = ?', (json.dumps(data), quiz_id))
+            return {**public(row), 'deleted_question': index + 1, 'question_count': len(data)}
         if option_number is not None and option is None:
             raise ValueError('Укажите текст варианта')
         changed_option = None
