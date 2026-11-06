@@ -4,17 +4,17 @@ import json
 import re
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
-from dataclasses import dataclass
+from dataclasses import replace
 from functools import lru_cache
 from time import monotonic
 
 import httpx2
 from langfuse import get_client
 from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits, capture_run_messages
-from pydantic_ai.capabilities import AbstractCapability, Instrumentation, PrepareTools
+from pydantic_ai.capabilities import Instrumentation, PrepareTools
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
-    ModelMessagesTypeAdapter, repair_messages,
+    ModelMessagesTypeAdapter, ModelRequest, UserPromptPart, repair_messages,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -63,13 +63,52 @@ QUIZ_ACTION_LABELS = {
 }
 
 
-@dataclass
-class ContextObserver(AbstractCapability[None]):
-    observe: Callable
+class ObservedCompaction(TieredCompaction):
+    """Budget adapter: native strategies operate only on completed turns."""
+    def __init__(self, *, observe, measure, **kwargs):
+        super().__init__(**kwargs)
+        self.observe = observe
+        self.measure = measure
 
     async def before_model_request(self, ctx, request_context):
-        self.observe(ctx, request_context.messages)
-        return request_context
+        messages = list(request_context.messages)
+        before = self.measure(messages)
+        # The current user turn is an indivisible suffix, including its tool calls.
+        boundary = next((i for i, message in enumerate(messages)
+                         if message.run_id == ctx.run_id), None)
+        if boundary is None:
+            boundary = next((i for i in range(len(messages) - 1, -1, -1)
+                             if isinstance(messages[i], ModelRequest)
+                             and any(isinstance(p, UserPromptPart) for p in messages[i].parts)), 0)
+        old, current = messages[:boundary], messages[boundary:]
+        changed = False
+        if before > self.target_tokens and old:
+            with get_client().start_as_current_observation(
+                name='context-trim', input={'tokens': before, 'budget': self.target_tokens,
+                                            'protected_messages': len(current)},
+            ) as span:
+                strategies = []
+                for tier in self.tiers:
+                    if self.measure([*old, *current]) <= self.target_tokens:
+                        break
+                    old = await tier.compact(old, replace(ctx, messages=old))
+                    strategies.append(type(tier).__name__)
+                # A retained tail is a floor, not a ceiling. Remove complete old
+                # turns if native strategies still cannot satisfy our input budget.
+                while old and self.measure([*old, *current]) > self.target_tokens:
+                    cut = next((i for i in range(1, len(old))
+                                if isinstance(old[i], ModelRequest)
+                                and any(isinstance(p, UserPromptPart) for p in old[i].parts)), len(old))
+                    old = old[cut:]
+                    strategies.append('drop_oldest_turn')
+                compacted = [*old, *current]
+                changed = ModelMessagesTypeAdapter.dump_json(messages) != ModelMessagesTypeAdapter.dump_json(compacted)
+                messages = compacted
+                span.update(output={'tokens': self.measure(messages), 'strategies': strategies,
+                                    'messages_after': len(messages)})
+        ctx.messages[:] = messages
+        self.observe(ctx, changed)
+        return replace(request_context, messages=messages)
 
 
 class Agent:
@@ -83,31 +122,11 @@ class Agent:
         self.http = httpx2.AsyncClient(trust_env=False)
         model = OllamaModel(CONFIG['model'], provider=OllamaProvider(
             base_url=BASE_URL, api_key=API_KEY, http_client=self.http))
-        self.compaction = self.build_compaction()
-        registered_tools = build_tools(tools)
-        self.agent = PydanticAgent(
-            model, instructions=self.instructions, retries=2,
-            capabilities=[
-                Instrumentation(),
-                ContextObserver(self.capture_context),
-                self.compaction,
-                ContextObserver(self.record_context),
-                PrepareTools(self.prepare_tools),
-            ],
-            tools=registered_tools)
-        self.agent.output_validator(self.finalize_answer)
-        # Считаем контекст по реальным схемам, сгенерированным PydanticAI.
-        self._tool_schemas = json.dumps([
-            {'type': 'function', 'function': {
-                'name': t.tool_def.name,
-                'description': t.tool_def.description,
-                'parameters': t.tool_def.parameters_json_schema,
-            }}
-            for t in registered_tools
-        ], ensure_ascii=False)
-
-    def build_compaction(self) -> TieredCompaction[None]:
-        return TieredCompaction(
+        # PydanticAI Harness: clear old search results, summarize older turns,
+        # and use a sliding window only as the last-resort fallback. Placing
+        # the sliding window before summarization would normally skip the LLM tier.
+        self.compaction = ObservedCompaction(
+            observe=self.record_context, measure=self.count,
             tiers=[
                 ClearToolResults(
                     max_tokens=1, keep_pairs=2, tokenizer=count_text,
@@ -127,6 +146,25 @@ class Agent:
             target_tokens=START_BUDGET,
             tokenizer=count_text,
         )
+        registered_tools = build_tools(tools)
+        self.agent = PydanticAgent(
+            model, instructions=self.instructions, retries=2,
+            capabilities=[
+                Instrumentation(),
+                self.compaction,
+                PrepareTools(self.prepare_tools),
+            ],
+            tools=registered_tools)
+        self.agent.output_validator(self.finalize_answer)
+        # Считаем контекст по реальным схемам, сгенерированным PydanticAI.
+        self._tool_schemas = json.dumps([
+            {'type': 'function', 'function': {
+                'name': t.tool_def.name,
+                'description': t.tool_def.description,
+                'parameters': t.tool_def.parameters_json_schema,
+            }}
+            for t in registered_tools
+        ], ensure_ascii=False)
 
     def completed_quiz_actions(self) -> list[str]:
         completed = []
@@ -176,12 +214,8 @@ class Agent:
             return []
         return tool_defs
 
-    def capture_context(self, ctx, messages) -> None:
-        self._context_before = ModelMessagesTypeAdapter.dump_json(messages)
-
-    def record_context(self, ctx, messages) -> None:
-        changed = self._context_before != ModelMessagesTypeAdapter.dump_json(messages)
-        tokens = self.count(messages)
+    def record_context(self, ctx, changed: bool) -> None:
+        tokens = self.count(ctx.messages)
         self.stats.max_context = max(self.stats.max_context or 0, tokens)
         self.stats.trimmed = bool(self.stats.trimmed or changed)
         self.trimmed = self.trimmed or changed
@@ -190,6 +224,9 @@ class Agent:
                 'budget': INPUT_BUDGET, 'count_method': 'tokenized_serialized_messages'},
         ) as span:
             span.update(output={'compacted': changed, 'fits': tokens <= INPUT_BUDGET})
+        if tokens > INPUT_BUDGET:
+            raise ValueError('Текущий ход превышает бюджет даже без старой истории. '
+                             'Уменьшите объём запроса или результатов инструментов.')
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
