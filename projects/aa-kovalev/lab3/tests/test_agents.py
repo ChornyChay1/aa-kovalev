@@ -1,6 +1,8 @@
 """Регрессии без Ollama, Qdrant и Langfuse: unittest discover -s tests."""
 import os
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from dataclasses import dataclass
 from contextlib import nullcontext
 from time import monotonic
@@ -26,6 +28,63 @@ from settings import CONFIG
 from tools.result_budget import count_result, limit_result
 from tools.pydantic_tools import build_tools as custom_tools
 from tools.smolagents_tools import build_tools as ready_tools
+
+
+class SummaryFocusTests(unittest.TestCase):
+    def setUp(self):
+        from services.prompts import summary_focus
+        summary_focus.cache_clear()
+        self.addCleanup(summary_focus.cache_clear)
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / 'prompts').mkdir()
+        self.path = self.root / 'prompts/summary_focus.txt'
+
+    def test_langfuse_has_priority_over_local_file(self):
+        from services.prompts import summary_focus
+        self.path.write_text('Локальная версия', encoding='utf-8')
+        remote = SimpleNamespace(prompt='Версия из Langfuse', is_fallback=False)
+        client = SimpleNamespace(get_prompt=MagicMock(return_value=remote))
+        with patch('services.prompts.ROOT', self.root), \
+                patch('services.prompts.get_client', return_value=client):
+            self.assertEqual(summary_focus(), 'Версия из Langfuse')
+        client.get_prompt.assert_called_once_with(
+            'summary_focus', type='text', fallback='Локальная версия', max_retries=0,
+        )
+
+    def test_local_file_is_used_when_langfuse_falls_back(self):
+        from services.prompts import summary_focus
+        self.path.write_text('Локальная версия', encoding='utf-8')
+        client = SimpleNamespace(get_prompt=MagicMock(return_value=SimpleNamespace(
+            is_fallback=True, prompt='Локальная версия')))
+        with patch('services.prompts.ROOT', self.root), \
+                patch('services.prompts.get_client', return_value=client):
+            self.assertEqual(summary_focus(), 'Локальная версия')
+
+    def test_local_file_is_used_on_connection_error(self):
+        from services.prompts import summary_focus
+        self.path.write_text('Локальная версия', encoding='utf-8')
+        client = SimpleNamespace(get_prompt=MagicMock(side_effect=OSError('offline')))
+        with patch('services.prompts.ROOT', self.root), \
+                patch('services.prompts.get_client', return_value=client):
+            self.assertEqual(summary_focus(), 'Локальная версия')
+
+    def test_langfuse_works_without_local_file(self):
+        from services.prompts import summary_focus
+        remote = SimpleNamespace(prompt='Версия из Langfuse', is_fallback=False)
+        client = SimpleNamespace(get_prompt=MagicMock(return_value=remote))
+        with patch('services.prompts.ROOT', self.root), \
+                patch('services.prompts.get_client', return_value=client):
+            self.assertEqual(summary_focus(), 'Версия из Langfuse')
+
+    def test_missing_both_sources_fails_explicitly(self):
+        from services.prompts import summary_focus
+        client = SimpleNamespace(get_prompt=MagicMock(side_effect=OSError('offline')))
+        with patch('services.prompts.ROOT', self.root), \
+                patch('services.prompts.get_client', return_value=client):
+            with self.assertRaises(OSError):
+                summary_focus()
 
 
 class ToolMetricsTests(unittest.TestCase):
@@ -71,6 +130,9 @@ class AgentTests(unittest.TestCase):
         self.prompts = patch('agents.custom.system_prompt', return_value=('Учебный помощник.', 'test'))
         self.prompts.start()
         self.addCleanup(self.prompts.stop)
+        self.summary = patch('agents.custom.summary_focus', return_value='Сохраняй важные факты.')
+        self.summary.start()
+        self.addCleanup(self.summary.stop)
         self.tools = BookTools.__new__(BookTools)
         self.tools.reset()
         self.tools.session = 'test'
