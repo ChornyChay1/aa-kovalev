@@ -78,7 +78,7 @@ PydanticAI строит схемы и валидацию через `Tool`, smol
 Проверка действия отличает удаление квиза от удаления вопроса; правильный ID,
 номер вопроса и содержимое по-прежнему проверяются по снимкам и критерию судьи.
 
-Оба агента получают одну выдачу поиска: суммарно до 4000 символов текста,
+Все три агента получают одинаково ограниченную выдачу поиска: суммарно до 4000 символов текста,
 с ID, PDF-страницами и признаком сокращения фрагмента. Полные найденные чанки
 остаются во вложенном retrieval-span и данных для retrieval-метрик.
 Содержимое квиза больше не обрезается посреди JSON. Общая валидация создания
@@ -104,7 +104,8 @@ PydanticAI строит схемы и валидацию через `Tool`, smol
 
 Сверка API: [история PydanticAI](https://ai.pydantic.dev/message-history/),
 [ограничения PydanticAI](https://ai.pydantic.dev/agent/),
-[ToolCallingAgent](https://huggingface.co/docs/smolagents/en/reference/agents).
+[ToolCallingAgent и CodeAgent](https://huggingface.co/docs/smolagents/en/reference/agents),
+[Compaction в PydanticAI Harness](https://ai.pydantic.dev/harness/compaction/).
 
 `tasks.json` содержит 18 задач и 39 реплик на агента. Веб-сервер для
 прогона не требуется. Пробный запуск проверяет загрузку датасета, ответы,
