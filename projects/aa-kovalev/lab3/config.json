@@ -8,6 +8,8 @@
   "timeout_seconds": 120,
   "temperature": 0,
   "retrieval_k": 5,
+  "tool_output_tokens": 2048,
+  "tool_turn_tokens": 6144,
   "input_usd_per_million": 0,
   "output_usd_per_million": 0,
   "user_id": "aa-kovalev",
