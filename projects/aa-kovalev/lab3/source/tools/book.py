@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from time import monotonic
 
-from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
+from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK, SEARCH_EXCERPTS_CHARS
 from models.domain import SearchHit, ToolArguments, ToolResult
 from models.schemas import ToolCall
 import httpx
@@ -72,7 +72,13 @@ class BookTools:
             hits, _ = self.rag.retrieve(arguments['query'], CONFIG['retrieval_k'])
             self.retrievals.append(hits)
             span.update(output=hits)
-            return hits
+            # Оба агента видят одинаковые фрагменты; полная выдача остаётся в retrieval.
+            excerpt_chars = SEARCH_EXCERPTS_CHARS // max(1, len(hits))
+            return [
+                {'id': hit['id'], 'page': hit['page'], 'text': hit['text'][:excerpt_chars],
+                 'truncated': len(hit['text']) > excerpt_chars}
+                for hit in hits
+            ]
 
     def close(self) -> None:
         self.rag.close()

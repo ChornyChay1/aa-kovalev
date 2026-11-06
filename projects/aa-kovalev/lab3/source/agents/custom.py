@@ -8,16 +8,15 @@ from time import monotonic
 
 import httpx2
 from langfuse import get_client
-from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits
+from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits, capture_run_messages
 from pydantic_ai.capabilities import Instrumentation, PrepareTools, ProcessHistory
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
-    ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart,
+    ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart, repair_messages,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai_harness.compaction import ClearToolResults
-from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
@@ -25,7 +24,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from constants import (
     APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
-    GET_QUIZ_INFO, LIST_QUIZES, MAX_TOOL_CALLS_PER_TURN, TOOL_OUTPUT_CHARS,
+    GET_QUIZ_INFO, LIST_QUIZES, MAX_TOOL_CALLS_PER_TURN,
     TURN_RESERVE_TOKENS, UPDATE,
 )
 from models.schemas import AgentStats
@@ -82,7 +81,6 @@ class Agent:
             model, instructions=self.instructions, retries=2,
             capabilities=[
                 Instrumentation(),
-                ToolOutputLimits(bands=[Band(TOOL_OUTPUT_CHARS, Truncate(max_chars=TOOL_OUTPUT_CHARS))]),
                 ProcessHistory(self.fit_context),
                 PrepareTools(self.prepare_tools),
             ],
@@ -97,6 +95,7 @@ class Agent:
         request = ModelRequest(parts=[UserPromptPart(content=question)])
         messages = [*self.history, request]
         before = self.count(messages)
+        self.stats.max_context = max(self.stats.max_context or 0, before)
         if before <= START_BUDGET:
             return self.history
 
@@ -107,21 +106,31 @@ class Agent:
         ) as span:
             ctx = RunContext(deps=None, model=self.agent.model, usage=RunUsage())
             messages = await self.clear_tool_results.compact(messages, ctx)
+            cleared_tokens = self.count(messages)
             for i in range(len(messages)):
                 if i == 0 or starts_a_turn(messages[i]):
                     after = self.count(messages[i:])
                     if after <= START_BUDGET:
                         self.trimmed = self.stats.trimmed = True
                         span.update(output={'tokens': after, 'messages_before': len(messages),
-                                            'messages_after': len(messages) - i})
+                                            'messages_after': len(messages) - i,
+                                            'removed_messages': i,
+                                            'tokens_after_clear': cleared_tokens,
+                                            'strategy': 'clear_tool_results_then_oldest_turns'})
                         return messages[i:-1]
         raise ContextBudgetExceeded('Не хватило места в контексте для начала хода.')
 
     async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
         tokens = self.count(messages)
+        self.stats.max_context = max(self.stats.max_context or 0, tokens)
+        with get_client().start_as_current_observation(
+            name='context-check', input={'step': ctx.usage.requests, 'tokens': tokens,
+                'budget': INPUT_BUDGET, 'context_limit': CONFIG['context_tokens'],
+                'count_method': 'tokenized_serialized_messages'},
+        ) as span:
+            span.update(output={'fits': tokens <= INPUT_BUDGET})
         if tokens > INPUT_BUDGET:
             raise ContextBudgetExceeded('Не хватило места в контексте для продолжения хода.')
-        self.stats.max_context = max(self.stats.max_context or 0, tokens)
         return messages
 
     async def prepare_tools(self, ctx: RunContext[None],
@@ -155,25 +164,40 @@ class Agent:
             elif isinstance(event, FunctionToolResultEvent):
                 emit('tool_done', event.part.tool_name)
 
+    async def run_turn(self, question: str) -> str:
+        history = await self.history_for_turn(question)
+        usage = RunUsage()
+        # Захват внутри Runner: contextvars из внешнего потока сюда не возвращаются.
+        with capture_run_messages() as messages:
+            try:
+                result = await self.agent.run(
+                    question, message_history=history, usage=usage,
+                    usage_limits=UsageLimits(
+                        request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
+                    ),
+                    model_settings=self.model_settings(CONFIG['max_output_tokens']),
+                    event_stream_handler=self.stream_events if self.on_event else None,
+                )
+                return result.output
+            finally:
+                if messages:
+                    # Закрывает незавершённые пары вызов/результат после прерывания.
+                    self.history = repair_messages(messages)
+                self.add_usage(usage)
+
     def answer(self, question: str) -> tuple[str, AgentStats]:
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
         )
         try:
-            history = self.loop.run(self.history_for_turn(question), context=copy_context())
-            request = self.agent.run(question, message_history=history,
-                usage_limits=UsageLimits(
-                    request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
-                ),
-                model_settings=self.model_settings(CONFIG['max_output_tokens']),
-                event_stream_handler=self.stream_events if self.on_event else None)
-            result = self.loop.run(asyncio.wait_for(request, CONFIG['timeout_seconds']), context=copy_context())
-            self.history = result.all_messages()
-            self.add_usage(result.usage)
-            answer = result.output
-        except ContextBudgetExceeded as error:
-            self.stats.status = 'error'
+            remaining = self.tools.deadline - monotonic()
+            answer = self.loop.run(
+                asyncio.wait_for(self.run_turn(question), max(0, remaining)), context=copy_context())
+        except Exception as error:
+            name = type(error).__name__.lower()
+            self.stats.status = ('max_steps' if name == 'usagelimitexceeded'
+                                    else 'timeout' if 'timeout' in name else 'error')
             actions = {CREATE: 'Создан квиз', UPDATE: 'Изменён квиз', DELETE: 'Удалён квиз',
                        APPEND_QUESTIONS: 'Добавлены вопросы в квиз',
                        DELETE_QUESTION: 'Удалён вопрос в квизе'}
@@ -184,11 +208,6 @@ class Agent:
                 and isinstance(call.result, dict) and 'quiz_id' in call.result
             ]
             answer = '\n'.join([str(error), *completed])
-        except Exception as error:
-            name = type(error).__name__.lower()
-            self.stats.status = ('max_steps' if name == 'usagelimitexceeded'
-                                    else 'timeout' if 'timeout' in name else 'error')
-            answer = str(error)
         self.stats.trimmed_before_answer = self.trimmed
         self.stats.context_tokens = self.count(self.history)
         return answer, self.stats

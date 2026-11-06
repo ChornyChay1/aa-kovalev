@@ -6,7 +6,7 @@ from langfuse import get_client
 
 from constants import DATASET_NAME
 from services.observability import project_id
-from settings import ROOT
+from task_data import load_tasks
 
 
 def publish_dataset(tasks: list[dict]) -> dict[tuple[str, int], str]:
@@ -25,6 +25,9 @@ def publish_dataset(tasks: list[dict]) -> dict[tuple[str, int], str]:
                 'expected_tools': task_metadata['expected_tools'][i],
                 'relevant_pages': task_metadata['relevant_pages'][i],
                 'source_id': task_metadata['source_id'],
+                'expected_actions': task_metadata['expected_actions'][i],
+                'rubric_version': task_metadata['rubric_version'],
+                'requires_context_trim': task_metadata.get('requires_context_trim', False),
             }
             identity = json.dumps([project_id(), dataset.id, item_input, expected, metadata],
                                   ensure_ascii=False, sort_keys=True)
@@ -38,5 +41,5 @@ def publish_dataset(tasks: list[dict]) -> dict[tuple[str, int], str]:
 
 
 if __name__ == '__main__':
-    items = publish_dataset(json.loads((ROOT / 'tasks.json').read_text(encoding='utf-8')))
+    items = publish_dataset(load_tasks())
     print(f'{DATASET_NAME}: загружено {len(items)} реплик.')

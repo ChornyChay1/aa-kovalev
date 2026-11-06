@@ -17,6 +17,7 @@ from agents.custom import Agent
 from services.quizzes import get_quiz, list_quizes
 from agents.ready import ReadyAgent, instrument
 from services.turns import turn
+from task_data import load_tasks
 
 from constants import BOTH_AGENTS, CUSTOM_AGENT, DATASET_NAME, READY_AGENT
 
@@ -51,7 +52,7 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
                 reply = turn(agent, tools, question, run_id, agent_name, run_id)
                 print(reply.output, '\n', reply.trace_url)
         return
-    tasks = json.loads((ROOT / 'tasks.json').read_text(encoding='utf-8'))
+    tasks = load_tasks()
     if args.tasks:
         tasks = [t for t in tasks if t['id'] in args.tasks]
         if {t['id'] for t in tasks} != set(args.tasks):
@@ -82,6 +83,8 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
                             links.append(CreateDatasetRunItemRequest(
                                 run_name=f'{run_id}-{name}', dataset_item_id=items[task['id'], i],
                                 trace_id=row['trace_id'], observation_id=row['observation_id'],
+                                metadata={'agent': name, 'config': CONFIG,
+                                          'rubric_version': task['metadata']['rubric_version']},
                             ))
                         output.write(json.dumps(row, ensure_ascii=False) + '\n')
                         output.flush()

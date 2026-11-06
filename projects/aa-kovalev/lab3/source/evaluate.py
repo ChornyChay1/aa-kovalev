@@ -10,6 +10,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 from langfuse import Langfuse, get_client, propagate_attributes
 from services.observability import require_project
+from tool_metrics import check_tools
 
 from settings import LAB2  # Подключает модули Лабы 2.
 from retrieval_metrics import metrics, relevant_chunk_ids
@@ -78,18 +79,18 @@ def main() -> None:
             raise SystemExit(f'{label}: нужна одна оценка 0 или 1, получено: '
                              f'{[score.value for score in scores]}.')
         judge = scores[0]
-        expected = set(row['metadata']['expected_tools'][row['turn']])
-        called = {call['name'] for call in row['calls']}
-        completed = {call['name'] for call in row['calls'] if call.get('error') is None}
-        row['tool_correctness'] = int(expected <= called) if expected else None
-        row['success'] = int(row['status'] == 'success' and expected <= completed and judge.value == 1)
+        row['tool_correctness'], missing_tools = check_tools(row)
+        row['success'] = int(row['status'] == 'success' and not missing_tools and judge.value == 1)
+        row['comment'] = judge.comment or 'См. ответ и вызовы в трейсе'
         if row['status'] != 'success':
             row['error_category'] = row['status']
-        elif not expected <= completed:
+        elif missing_tools:
             row['error_category'] = 'tool_failure'
+            row['comment'] = 'Нет успешного выполнения: ' + ', '.join(missing_tools)
+        elif row['success']:
+            row['error_category'] = None
         else:
             row['error_category'] = 'judge_rejected'
-        row['comment'] = judge.comment or 'См. ответ и вызовы в трейсе'
         row.update(retrieval_metrics(row, chunks, config['retrieval_k']))
     if missing:
         raise SystemExit(f'Нет оценок {args.judge_score} для {len(missing)} реплик. '
@@ -176,6 +177,13 @@ def main() -> None:
             values = [s[k] for k in ('agent','type','difficulty','tasks','success_rate','context_success','mean_cost_usd','mean_latency_seconds')]
             lines.append('| ' + ' | '.join('—' if v is None else f'{v:.4f}' if isinstance(v,float) else str(v) for v in values) + ' |')
         lines += ['', '## Разбор ошибок', '']
+        for (agent, task_id), turns in tasks.items():
+            if (agent == 'custom' and turns[0]['metadata'].get('requires_context_trim')
+                    and not any(r.get('trimmed_before_answer')
+                                and r['turn'] in r['metadata']['history_dependent'] for r in turns)):
+                lines.append(f'- {task_id}: сокращение перед контекстной репликой не подтверждено. '
+                             'Для требования длинного диалога нужен отдельный прогон с меньшим бюджетом '
+                             'или более длинной историей; шесть реплик сами по себе этого не гарантируют.')
         for r in failures:
             lines.append(f'- **{r["agent"]} / {r["task_id"]} / реплика {r["turn"]}** — {r["error_category"]}: {r["comment"]}. [Трейс]({r["trace_url"]})')
         for agent in sorted({r['agent'] for r in rows}):

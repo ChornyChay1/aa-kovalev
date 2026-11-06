@@ -1,7 +1,7 @@
 """Адаптеры общих инструментов для PydanticAI."""
-from pydantic_ai import ModelRetry, Tool
+from pydantic_ai import Tool
 
-from constants import CREATE, GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, MAX_QUESTIONS, MAX_QUIZ_TITLE, SEARCH_BOOK, QuizAction
+from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK, QuizAction
 from models.domain import ToolResult
 from models.schemas import Question
 from settings import SCHEMAS
@@ -19,12 +19,6 @@ def build_tools(tools: BookTools) -> list[Tool]:
                     questions: list[Question] | None = None,
                     question_number: int | None = None, question: Question | None = None,
                     option: str | None = None, option_number: int | None = None) -> ToolResult:
-        if action == CREATE and (not title or not title.strip() or len(title) > MAX_QUIZ_TITLE
-                                   or not questions or len(questions) > MAX_QUESTIONS):
-            raise ModelRetry(
-                'Для create придумай непустой title до 150 символов и передай questions '
-                'с 1–10 полностью заполненными вопросами. Соблюдай количество из запроса.'
-            )
         args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
                     questions=[q.model_dump() for q in questions] if questions else None,
                     question=question.model_dump() if question else None, option=option, option_number=option_number)

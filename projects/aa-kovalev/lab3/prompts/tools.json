@@ -8,7 +8,7 @@
         "type": "object",
         "properties": {
           "query": {
-            "description": "query",
+            "description": "Поисковый запрос по теме исходного вопроса пользователя; включи конкретные термины.",
             "type": "string"
           }
         },
@@ -27,7 +27,7 @@
         "type": "object",
         "properties": {
           "action": {
-            "description": "action",
+            "description": "Операция: create — новый квиз, update — правка вопроса/варианта, append_questions — добавление вопросов, delete_question — удаление вопроса, delete — удаление всего квиза.",
             "type": "string",
             "enum": [
               "create",
@@ -38,12 +38,12 @@
             ]
           },
           "quiz_id": {
-            "description": "quiz_id",
+            "description": "Полный ID из результата предыдущего вызова или списка квизов. Не порядковый номер.",
             "type": "string",
             "nullable": true
           },
           "title": {
-            "description": "title",
+            "description": "Название нового квиза для create, от 1 до 150 символов.",
             "type": "string",
             "nullable": true
           },
@@ -76,12 +76,12 @@
             "nullable": true
           },
           "question_number": {
-            "description": "question_number",
+            "description": "Номер существующего вопроса с 1. Для update и delete_question обязателен.",
             "type": "integer",
             "nullable": true
           },
           "question": {
-            "description": "question",
+            "description": "Полный заменяющий вопрос для update: text, options и correct. Остальные вопросы сохраняются.",
             "type": "object",
             "properties": {
               "text": {
@@ -143,7 +143,7 @@
         "type": "object",
         "properties": {
           "quiz_id": {
-            "description": "quiz_id",
+            "description": "Полный ID из результата предыдущего вызова или списка квизов. Не порядковый номер.",
             "type": "string"
           },
           "question_number": {
