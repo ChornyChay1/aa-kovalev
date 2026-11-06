@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from time import monotonic
 
-from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK, SEARCH_EXCERPTS_CHARS
+from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
 from models.domain import SearchHit, ToolArguments, ToolResult
 from models.schemas import ToolCall
 import httpx
@@ -12,6 +12,7 @@ from settings import LAB2, CONFIG
 from services.quizzes import manage_quiz, list_quizes, get_quiz_info
 
 from rag import RAG
+from tools.result_budget import count_result, limit_result
 
 class BookTools:
     session: str
@@ -26,6 +27,7 @@ class BookTools:
     def reset(self) -> None:
         self.calls: list[ToolCall] = []
         self.retrievals: list[list[SearchHit]] = []
+        self.returned_tool_tokens = 0
         self.deadline = monotonic() + CONFIG['timeout_seconds']
 
     def call(self, name: str, arguments: ToolArguments) -> ToolResult:
@@ -35,9 +37,23 @@ class BookTools:
             self.calls.append(record)
             try:
                 result = self.dispatch(name, arguments)
-                record.result = result
-                span.update(output=result)
-                return result
+                record.result = result  # Полный результат для отчёта и оценок.
+                original_tokens = count_result(result)
+                remaining = CONFIG['tool_turn_tokens'] - self.returned_tool_tokens
+                # Не теряем квитанции о записи, даже если бюджет почти исчерпан.
+                budget = min(CONFIG['tool_output_tokens'], max(256, remaining))
+                delivered, truncated = limit_result(result, budget)
+                delivered_tokens = count_result(delivered)
+                self.returned_tool_tokens += delivered_tokens
+                record.truncated = truncated
+                record.returned_tokens = delivered_tokens
+                span.update(output=result, metadata={
+                    'full_result_tokens': original_tokens,
+                    'returned_result_tokens': delivered_tokens,
+                    'returned_tool_tokens_total': self.returned_tool_tokens,
+                    'truncated_for_model': truncated,
+                })
+                return delivered
             except Exception as error:
                 record.error = str(error)
                 result = {'error': str(error), 'hint': 'Исправь аргументы или используй другой инструмент.'}
@@ -72,11 +88,11 @@ class BookTools:
             hits, _ = self.rag.retrieve(arguments['query'], CONFIG['retrieval_k'])
             self.retrievals.append(hits)
             span.update(output=hits)
-            # Оба агента видят одинаковые фрагменты; полная выдача остаётся в retrieval.
-            excerpt_chars = SEARCH_EXCERPTS_CHARS // max(1, len(hits))
+            # Обрезка всех ответов инструментов выполняется по токенам
+            # в call(); полные найденные фрагменты остаются в retrieval.
             return [
-                {'id': hit['id'], 'page': hit['page'], 'text': hit['text'][:excerpt_chars],
-                 'truncated': len(hit['text']) > excerpt_chars}
+                {'id': hit['id'], 'page': hit['page'],
+                 'text': hit['text'], 'truncated': False}
                 for hit in hits
             ]
 
