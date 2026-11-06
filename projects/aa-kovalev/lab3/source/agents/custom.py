@@ -201,7 +201,7 @@ class Agent:
             tiers=[
                 ClearToolResults(
                     max_tokens=1, keep_pairs=2, tokenizer=count_text,
-                    exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
+                    exclude_tools=frozenset({MANAGE_QUIZ}),
                 ),
                 SummarizingCompaction(
                     max_tokens=1, keep_messages=0, tokenizer=count_text,
