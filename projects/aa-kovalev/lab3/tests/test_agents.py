@@ -188,6 +188,25 @@ class OllamaAdapterTests(unittest.TestCase):
             raw=SimpleNamespace(choices=[SimpleNamespace(finish_reason='length')]))
         self.assertFalse(self.generate(message).tool_calls)
 
+    def test_unknown_title_is_ignored_when_required_arguments_exist(self):
+        self.available.insert(0, SimpleNamespace(
+            name='get_quiz_info', inputs={'quiz_id': {'type': 'string'},
+                                          'question_number': {'type': 'integer', 'nullable': True}}))
+        self.available[0].inputs = {'quiz_id': {'type': 'string'},
+                                    'question_number': {'type': 'integer', 'nullable': True}}
+        action = self.call('get_quiz_info', {'quiz_id': 'abc', 'title': 'Списки'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
+        self.generate(message)
+        self.assertEqual(action.function.arguments, {'quiz_id': 'abc'})
+
+    def test_unknown_title_does_not_hide_missing_required_argument(self):
+        self.available.insert(0, SimpleNamespace(
+            name='get_quiz_info', inputs={'quiz_id': {'type': 'string'}}))
+        action = self.call('get_quiz_info', {'title': 'Списки'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
+        self.generate(message)
+        self.assertEqual(action.function.arguments, {'title': 'Списки'})
+
     def test_existing_tool_call_is_preserved(self):
         action = self.call('manage_quiz', {'action': 'create', 'title': 'Списки'})
         message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
