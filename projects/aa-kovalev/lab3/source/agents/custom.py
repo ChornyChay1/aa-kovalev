@@ -54,6 +54,19 @@ def validate_answer(output: str) -> str:
     return output
 
 
+class ObservedCompaction(TieredCompaction):
+    def __init__(self, *, observe, **kwargs):
+        super().__init__(**kwargs)
+        self.observe = observe
+
+    async def before_model_request(self, ctx, request_context):
+        before = ModelMessagesTypeAdapter.dump_json(ctx.messages)
+        result = await super().before_model_request(ctx, request_context)
+        changed = before != ModelMessagesTypeAdapter.dump_json(ctx.messages)
+        self.observe(ctx, changed)
+        return result
+
+
 class Agent:
     def __init__(self, tools: BookTools) -> None:
         self.instructions, self.prompt_version = system_prompt()
@@ -68,20 +81,21 @@ class Agent:
         # PydanticAI Harness: clear old search results, summarize older turns,
         # and use a sliding window only as the last-resort fallback. Placing
         # the sliding window before summarization would normally skip the LLM tier.
-        self.compaction = TieredCompaction(
+        self.compaction = ObservedCompaction(
+            observe=self.record_context,
             tiers=[
                 ClearToolResults(
-                    max_tokens=1, keep_pairs=2,
+                    max_tokens=1, keep_pairs=2, tokenizer=count_text,
                     exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
                 ),
                 SummarizingCompaction(
-                    max_tokens=1, keep_tokens=4000,
+                    max_tokens=1, keep_tokens=4000, tokenizer=count_text,
                     preserve_first_user_message=False,
                     model_settings={'max_tokens': CONFIG['max_output_tokens'],
                                     'temperature': CONFIG['temperature']},
                 ),
                 SlidingWindowCompaction(
-                    max_tokens=1, keep_tokens=4000,
+                    max_tokens=1, keep_tokens=4000, tokenizer=count_text,
                     preserve_first_user_message=False,
                 ),
             ],
@@ -119,9 +133,22 @@ class Agent:
         
         if ctx.usage.tool_calls >= MAX_TOOL_CALLS_PER_TURN:
             return []
-        if ctx.usage.requests >= CONFIG['max_steps'] - 1:
+        if ctx.run_step >= CONFIG['max_steps']:
             return []
         return tool_defs
+
+    def record_context(self, ctx, changed: bool) -> None:
+        tokens = self.count(ctx.messages)
+        self.stats.max_context = max(self.stats.max_context or 0, tokens)
+        self.stats.trimmed = bool(self.stats.trimmed or changed)
+        self.trimmed = self.trimmed or changed
+        with get_client().start_as_current_observation(
+            name='context-check', input={'step': ctx.run_step, 'tokens': tokens,
+                'budget': INPUT_BUDGET, 'count_method': 'tokenized_serialized_messages'},
+        ) as span:
+            span.update(output={'compacted': changed, 'fits': tokens <= INPUT_BUDGET})
+        if tokens > INPUT_BUDGET:
+            raise ValueError('Контекст после сокращения превышает входной бюджет.')
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
@@ -145,12 +172,7 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     async def run_turn(self, question: str) -> str:
-        # The harness owns history transformation; only compare the saved
-        # prefix to report whether it changed during this run.
         previous = self.history
-        previous_json = ModelMessagesTypeAdapter.dump_json(
-            previous, exclude_defaults=True, exclude_none=True,
-        )
         usage = RunUsage()
         with capture_run_messages() as messages:
             try:
@@ -168,11 +190,6 @@ class Agent:
             finally:
                 if messages:
                     self.history = repair_messages(messages)
-                    # Includes both cleared tool results and dropped old messages.
-                    self.trimmed = bool(previous) and previous_json != ModelMessagesTypeAdapter.dump_json(
-                        self.history[:len(previous)], exclude_defaults=True, exclude_none=True,
-                    )
-                    self.stats.trimmed = self.trimmed
                 self.add_usage(usage)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
@@ -180,7 +197,6 @@ class Agent:
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
         )
-        self.trimmed = False
         try:
             remaining = self.tools.deadline - monotonic()
             answer = self.loop.run(
@@ -208,7 +224,6 @@ class Agent:
         
         self.stats.trimmed_before_answer = self.trimmed
         self.stats.context_tokens = self.count(self.history)
-        self.stats.max_context = self.stats.context_tokens
         return answer, self.stats
 
     def close(self) -> None:

@@ -7,12 +7,12 @@ from unittest.mock import patch
 
 os.environ['LANGFUSE_TRACING_ENABLED'] = 'false'
 
-from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ModelRequest, UserPromptPart, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.usage import RunUsage, RequestUsage
 
 from agents.custom import Agent
-from agents.ready import OllamaToolModel, ReadyAgent
+from agents.ready import CodingAgent, OllamaToolModel, ReadyAgent
 from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction, MessageRole
 from task_data import load_tasks
 from tool_metrics import check_tools
@@ -103,6 +103,30 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(self.tools.calls), 4)
         self.assertEqual(output, 'Выполнены четыре вызова.')
 
+    def test_summary_requests_do_not_hide_tools(self):
+        ctx = SimpleNamespace(usage=RunUsage(requests=7), run_step=1)
+        definitions = [SimpleNamespace(name='manage_quiz')]
+        self.assertEqual(self.agent.loop.run(self.agent.prepare_tools(ctx, definitions)), definitions)
+
+    def test_compaction_keeps_tools_on_next_model_request(self):
+        self.agent.compaction.target_tokens = 1500
+        self.agent.compaction.tiers = [self.agent.compaction.tiers[-1]]
+        self.agent.compaction.tiers[0].keep_tokens = 100
+        self.agent.history = [ModelRequest(parts=[UserPromptPart('старый контекст ' * 3000)], run_id='old-run'),
+                              ModelResponse(parts=[TextPart('старый ответ')], run_id='old-run'),
+                              ModelRequest(parts=[UserPromptPart('недавняя тема ' * 100)], run_id='recent'),
+                              ModelResponse(parts=[TextPart('ответ')], run_id='recent')]
+        def respond(messages, info):
+            self.assertIn('manage_quiz', [t.name for t in info.function_tools])
+            self.assertTrue(any(isinstance(p, UserPromptPart) and p.content == 'Создай квиз'
+                                for m in messages for p in m.parts))
+            return ModelResponse(parts=[TextPart('Ответ')])
+        with self.agent.agent.override(model=FunctionModel(respond)):
+            _, stats = self.agent.answer('Создай квиз')
+        self.assertEqual(stats.status, 'success')
+        self.assertTrue(stats.trimmed)
+        self.assertGreater(stats.max_context, 0)
+
     def test_both_adapters_return_the_same_search_evidence(self):
         hits = [{'id': 'chunk', 'page': 47, 'text': 'Имена переменных ' * 1000, 'score': 0.9}]
         self.tools.rag = SimpleNamespace(
@@ -115,6 +139,18 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result[0]['page'], 47)
         self.assertTrue(result[0]['truncated'])
         self.assertEqual(self.tools.retrievals[0], hits)
+
+    def test_coding_agent_executes_shared_tool(self):
+        with patch('agents.ready.system_prompt', return_value=('Учебный помощник.', 'test')):
+            ready = CodingAgent(self.tools)
+        self.addCleanup(ready.close)
+        message = ChatMessage(role=MessageRole.ASSISTANT,
+            content="```python\nresult = list_quizes()\nfinal_answer(result)\n```", tool_calls=[])
+        with patch.object(ready.model, 'generate', return_value=message):
+            with patch.object(self.tools, 'dispatch', return_value={'quizzes': [], 'count': 0}):
+                _, stats = ready.answer('Покажи квизы')
+        self.assertEqual(stats.status, 'success')
+        self.assertEqual(self.tools.calls[-1].name, 'list_quizes')
 
     def test_ready_agent_constructs_and_refuses_expired_request(self):
         with patch('agents.ready.system_prompt', return_value=('Учебный помощник.', 'test')):
