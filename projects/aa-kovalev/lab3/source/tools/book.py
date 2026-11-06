@@ -39,9 +39,14 @@ class BookTools:
                 result = self.dispatch(name, arguments)
                 record.result = result  # Полный результат для отчёта и оценок.
                 original_tokens = count_result(result)
-                remaining = CONFIG['tool_turn_tokens'] - self.returned_tool_tokens
-                # Не теряем квитанции о записи, даже если бюджет почти исчерпан.
-                budget = min(CONFIG['tool_output_tokens'], max(256, remaining))
+                # Общий предел: вся доступная входная часть окна модели.
+                # Если результат сам больше неё, очистка истории не спасёт.
+                input_budget = (CONFIG['context_tokens']
+                                - CONFIG['max_output_tokens']
+                                - CONFIG['context_reserve_tokens'])
+                remaining = input_budget - self.returned_tool_tokens
+                # Небольшой резерв для подтверждения операций записи.
+                budget = min(input_budget, max(256, remaining))
                 delivered, truncated = limit_result(result, budget)
                 delivered_tokens = count_result(delivered)
                 self.returned_tool_tokens += delivered_tokens
