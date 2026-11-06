@@ -62,7 +62,7 @@ class TurnResult(AgentStats, TurnMetrics):
 
 
 class Chat(BaseModel):
-    message: str = Field(min_length=1, max_length=6000)
+    message: str = Field(min_length=1)
     session: str | None = None
 
 
