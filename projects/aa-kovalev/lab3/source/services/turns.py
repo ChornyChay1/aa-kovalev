@@ -35,11 +35,11 @@ def turn(
                 tags=tags, trace_name=trace_name, version=CONFIG['version'],
                 metadata={'run_id': run_id, 'agent': agent_name, 'system_prompt': agent.prompt_version}
         ):
-            input_tokens = count_text(question)
+            user_input_tokens = count_text(question)
             input_limit = int(CONFIG['context_tokens'] * MAX_USER_INPUT_CONTEXT_RATIO)
             try:
-                if input_tokens > input_limit:
-                    answer = (f'Слишком длинный запрос: {input_tokens} токенов при лимите '
+                if user_input_tokens > input_limit:
+                    answer = (f'Слишком длинный запрос: {user_input_tokens} токенов при лимите '
                               f'{input_limit}. Сократите сообщение.')
                     stats = AgentStats(status='error', input_tokens=0, output_tokens=0, steps=0)
                 else:
@@ -66,9 +66,9 @@ def turn(
             metadata = {
                 **stats.model_dump(exclude_unset=True),
                 **metrics.model_dump(),
-                'user_input_tokens': input_tokens,
+                'user_input_tokens': user_input_tokens,
                 'user_input_limit_tokens': input_limit,
-                'user_input_rejected': input_tokens > input_limit,
+                'user_input_rejected': user_input_tokens > input_limit,
             }
             span.update(output=answer, metadata={**metadata, 'config': CONFIG})
             # Trace-level I/O is also used by older hosted evaluators.
