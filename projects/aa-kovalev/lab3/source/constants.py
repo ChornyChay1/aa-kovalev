@@ -15,7 +15,9 @@ TOOL_NAMES = frozenset({SEARCH_BOOK, MANAGE_QUIZ, LIST_QUIZES, GET_QUIZ_INFO})
 
 CUSTOM_AGENT = 'custom'
 READY_AGENT = 'smolagents'
+CODING_AGENT = 'coding'
 BOTH_AGENTS = 'both'
+ALL_AGENTS = 'all'
 WEB_RUN_ID = 'web'
 WEB_QUIZ_COLLECTION = WEB_RUN_ID
 DATASET_NAME = 'lab3-agent-turns'
