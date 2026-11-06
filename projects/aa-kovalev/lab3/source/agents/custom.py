@@ -157,7 +157,8 @@ class ObservedCompaction(TieredCompaction):
                             'before_tokens': size,
                             'after_tokens': count_result(content),
                         })
-                        changed = True
+                        # trimmed в метриках истории учитывает только compaction
+                        # старых ходов, не ограничение нового tool-ответа.
                         break
                     else:
                         break
