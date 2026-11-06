@@ -62,16 +62,21 @@ def main() -> None:
     lf = get_client()
     require_project()
     missing = []
+    external = args.judge_score == 'external_judge'
     for row in rows:
         scores = lf.api.score_v_2.get(
-            trace_id=row['trace_id'], name=args.judge_score, source='EVAL', limit=2,
+            trace_id=row['trace_id'], name=args.judge_score,
+            source=None if external else 'EVAL',
+            score_ids=str(uuid5(NAMESPACE_URL, row['trace_id'] + '/external_judge')) if external else None,
+            limit=2,
         ).data
         label = f"{row['agent']}/{row['task_id']}/{row['turn']}"
         if not scores:
             missing.append(label)
             continue
         if len(scores) != 1 or scores[0].value not in (0, 1):
-            raise SystemExit(f'{label}: нужна одна оценка судьи со значением 0 или 1.')
+            raise SystemExit(f'{label}: нужна одна оценка 0 или 1, получено: '
+                             f'{[score.value for score in scores]}.')
         judge = scores[0]
         expected = set(row['metadata']['expected_tools'][row['turn']])
         called = {call['name'] for call in row['calls']}
