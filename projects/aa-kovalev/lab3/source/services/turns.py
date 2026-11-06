@@ -10,23 +10,35 @@ from services.observability import trace_url
 from settings import CONFIG, cost
 
 
-def turn(agent: DialogueAgent, tools: BookTools, question: str, session: str,
-         agent_name: str, run_id: str, *, quiz_collection: str | None = None) -> TurnResult:
+def turn(
+        agent: DialogueAgent,
+        tools: BookTools,
+        question: str,
+        session: str,
+        agent_name: str,
+        run_id: str,
+        *, quiz_collection: str | None = None
+) -> TurnResult:
     lf = get_client()
     tools.reset()
     tools.session = quiz_collection if quiz_collection is not None else session
     started = perf_counter()
+    
     tags = [agent_name, CONFIG['version'], CONFIG['model'], run_id]
     trace_name = f'{agent_name}-turn'
+    
     with lf.start_as_current_observation(name=trace_name, input=question) as span:
-        with propagate_attributes(user_id=CONFIG['user_id'], session_id=session,
+        with propagate_attributes(
+                user_id=CONFIG['user_id'], session_id=session,
                 tags=tags, trace_name=trace_name, version=CONFIG['version'],
-                metadata={'run_id': run_id, 'agent': agent_name, 'system_prompt': agent.prompt_version}):
+                metadata={'run_id': run_id, 'agent': agent_name, 'system_prompt': agent.prompt_version}
+        ):
             try:
                 answer, stats = agent.answer(question)
             except Exception as error:
                 answer = str(error)
                 stats = AgentStats(status='error', input_tokens=None, output_tokens=None)
+            
             latency = perf_counter() - started
             tool_errors = sum(call.error is not None for call in tools.calls)
             input_tokens = stats.input_tokens

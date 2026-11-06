@@ -1,37 +1,14 @@
-"""Адаптеры общих инструментов для PydanticAI."""
+"""PydanticAI строит схемы и валидацию из типов и docstrings общих функций."""
 from pydantic_ai import Tool
 
-from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK, QuizAction
-from models.domain import ToolResult
-from models.schemas import Question
-from settings import SCHEMAS
+from constants import MANAGE_QUIZ
 from tools.book import BookTools
-
-DESCRIPTIONS = {item['function']['name']: item['function']['description'] for item in SCHEMAS}
+from tools.definitions import build_tool_definitions
 
 
 def build_tools(tools: BookTools) -> list[Tool]:
-    def search_book(query: str) -> ToolResult:
-        return tools.call(SEARCH_BOOK, {'query': query})
-
-    def manage_quiz(action: QuizAction,
-                    quiz_id: str | None = None, title: str | None = None,
-                    questions: list[Question] | None = None,
-                    question_number: int | None = None, question: Question | None = None,
-                    option: str | None = None, option_number: int | None = None) -> ToolResult:
-        args = dict(action=action, quiz_id=quiz_id, title=title, question_number=question_number,
-                    questions=[q.model_dump() for q in questions] if questions else None,
-                    question=question.model_dump() if question else None, option=option, option_number=option_number)
-        return tools.call(MANAGE_QUIZ, args)
-
-    def list_quizes() -> ToolResult:
-        return tools.call(LIST_QUIZES, {})
-
-    def get_quiz_info(quiz_id: str, question_number: int | None = None) -> ToolResult:
-        return tools.call(GET_QUIZ_INFO, dict(quiz_id=quiz_id, question_number=question_number))
-
-    handlers = (search_book, manage_quiz, list_quizes, get_quiz_info)
     return [
-        Tool(handler, description=DESCRIPTIONS[handler.__name__], sequential=handler is manage_quiz)
-        for handler in handlers
+        Tool(handler, docstring_format='google', require_parameter_descriptions=True,
+             sequential=handler.__name__ == MANAGE_QUIZ)
+        for handler in build_tool_definitions(tools)
     ]

@@ -94,23 +94,38 @@ def run_chat(session: str, dialogue: Dialogue, message: str,
     with dialogue.lock:
         dialogue.agent.on_event = emit
         try:
-            row = turn(dialogue.agent, dialogue.tools, message, session, CUSTOM_AGENT, WEB_RUN_ID,
-                       quiz_collection=WEB_QUIZ_COLLECTION)
+            row = turn(
+                dialogue.agent,
+                dialogue.tools,
+                message,
+                session,
+                CUSTOM_AGENT,
+                WEB_RUN_ID,
+                quiz_collection=WEB_QUIZ_COLLECTION
+            )
         finally:
             dialogue.agent.on_event = None
         pages = dict.fromkeys(hit['page'] for hits in row.retrievals for hit in hits)
         book_pages = [BookPage(page=page, url=f'/document/{session}#page={page}') for page in pages]
-        result = ChatResponse(session=session, answer=verify_quiz_links(row.output),
-                              status=row.status,
-                              trace_url=row.trace_url, book_pages=book_pages)
+        result = ChatResponse(
+            session=session,
+            answer=verify_quiz_links(row.output),
+            status=row.status,
+            trace_url=row.trace_url,
+            book_pages=book_pages
+        )
         with closing(connect_dialogues()) as db, db:
             saved = db.execute('SELECT transcript FROM dialogues WHERE session = ?', (session,)).fetchone()
-            transcript = (Transcript.model_validate_json(saved[0]) if saved
-                          else Transcript(session=session, title=message.strip()[:70]))
+            transcript = (
+                Transcript.model_validate_json(saved[0])
+                if saved else Transcript(session=session, title=message.strip()[:70])
+            )
             transcript.turns.append(ChatTurn(message=message, result=result))
-            db.execute("""INSERT INTO dialogues (session, history, transcript) VALUES (?, ?, ?)
+            db.execute(
+                """INSERT INTO dialogues (session, history, transcript) VALUES (?, ?, ?)
                           ON CONFLICT(session) DO UPDATE SET
                               history = excluded.history, transcript = excluded.transcript""",
                        (session, ModelMessagesTypeAdapter.dump_json(dialogue.agent.history),
-                        transcript.model_dump_json()))
+                        transcript.model_dump_json())
+            )
     return result

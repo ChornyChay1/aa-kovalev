@@ -40,8 +40,22 @@ Ollama должна быть запущена. Для сравнения зад�
 | `get_quiz_info` | Чтение квиза или одного вопроса без ключей |
 | `manage_quiz` | Создание и удаление квиза, добавление, правка и удаление вопросов |
 
-Инструкции агента находятся в `prompts/system.txt`, схемы инструментов —
-в `prompts/tools.json`. Для загрузки системного промпта из Langfuse
+Инструкции агента находятся в `prompts/system.txt`. Схемы инструментов
+генерируются из кода в `source/tools/definitions.py`: описания параметров
+находятся в Google-style docstrings общих функций (`search_book`,
+`manage_quiz`, `list_quizes`, `get_quiz_info`), а Pydantic-класс
+`Question` и `QuizAction` (Literal) используются как аннотации типов.
+PydanticAI строит схемы и валидацию через `Tool`, smolagents — через
+нативный `tool()`. Файл `prompts/tools.json` больше не нужен.
+
+**Адаптация вложенных моделей** — smolagents 1.22.0 `@tool` декоратор транслирует
+`BaseModel` в пустой `{"type": "object"}`, теряя ограничения полей.
+Мост в `smolagents_tools.py` подставляет `Question.model_json_schema()`
+в параметры `question` и `questions`, сохраняя `minLength`, `maxLength`,
+`minItems`, `maxItems` и другие ограничения. Входные словари преобразуются
+в `Question` через Pydantic `validate_call`, включая проверку валидаторов модели.
+
+Для загрузки системного промпта из Langfuse
 создайте текстовый промпт `lab3-system` с меткой `production`, задайте
 `LANGFUSE_PROMPT_NAME=lab3-system` и перезапустите процесс. Версия промпта
 попадёт в метаданные трейса.
@@ -175,3 +189,6 @@ uv run --locked python -m unittest discover -s tests -v
 
 Проверяются сохранение истории и расхода после сбоя, границы сокращения,
 единая выдача инструментов и различение действий при оценке.
+Дополнительно тестируются имена и описания инструментов, enum действий,
+nullable/дефолтные аргументы, ограничения вложенной схемы `Question`,
+паритет dispatch и отклонение невалидных `Question` через Pydantic.

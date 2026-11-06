@@ -10,6 +10,9 @@ MANAGE_QUIZ = 'manage_quiz'
 LIST_QUIZES = 'list_quizes'
 GET_QUIZ_INFO = 'get_quiz_info'
 
+# Explicit constant set for tool name validation (task_data, etc.).
+TOOL_NAMES = frozenset({SEARCH_BOOK, MANAGE_QUIZ, LIST_QUIZES, GET_QUIZ_INFO})
+
 CUSTOM_AGENT = 'custom'
 READY_AGENT = 'smolagents'
 BOTH_AGENTS = 'both'

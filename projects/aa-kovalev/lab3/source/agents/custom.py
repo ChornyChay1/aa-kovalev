@@ -25,13 +25,13 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from constants import (
     APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
     GET_QUIZ_INFO, LIST_QUIZES, MAX_TOOL_CALLS_PER_TURN,
-    TURN_RESERVE_TOKENS, UPDATE,
+    TURN_RESERVE_TOKENS, UPDATE, TOOL_NAMES,
 )
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
 from services.prompts import system_prompt
-from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS
+from settings import API_KEY, BASE_URL, CONFIG
 
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
 START_BUDGET = INPUT_BUDGET - TURN_RESERVE_TOKENS
@@ -47,9 +47,11 @@ def count_text(text: str) -> int:
 
 
 def starts_a_turn(message: ModelMessage) -> bool:
-    return (isinstance(message, ModelRequest)
+    return (
+            isinstance(message, ModelRequest)
             and any(isinstance(part, UserPromptPart) for part in message.parts)
-            and not any(isinstance(part, ToolReturnPart) for part in message.parts))
+            and not any(isinstance(part, ToolReturnPart) for part in message.parts)
+    )
 
 
 class ContextBudgetExceeded(ValueError):
@@ -77,6 +79,7 @@ class Agent:
             max_tokens=START_BUDGET,
             exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
         )
+        registered_tools = build_tools(tools)
         self.agent = PydanticAgent(
             model, instructions=self.instructions, retries=2,
             capabilities=[
@@ -84,17 +87,28 @@ class Agent:
                 ProcessHistory(self.fit_context),
                 PrepareTools(self.prepare_tools),
             ],
-            tools=build_tools(tools))
+            tools=registered_tools)
         self.agent.output_validator(validate_answer)
+        # Считаем контекст по реальным схемам, сгенерированным PydanticAI.
+        self._tool_schemas = json.dumps([
+            {'type': 'function', 'function': {
+                'name': t.tool_def.name,
+                'description': t.tool_def.description,
+                'parameters': t.tool_def.parameters_json_schema,
+            }}
+            for t in registered_tools
+        ], ensure_ascii=False)
 
     def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
-        return count_text(self.instructions + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
+        return count_text(self.instructions + self._tool_schemas + payload)
 
     async def history_for_turn(self, question: str) -> list[ModelMessage]:
         request = ModelRequest(parts=[UserPromptPart(content=question)])
         messages = [*self.history, request]
+        
         before = self.count(messages)
+        
         self.stats.max_context = max(self.stats.max_context or 0, before)
         if before <= START_BUDGET:
             return self.history
@@ -112,11 +126,14 @@ class Agent:
                     after = self.count(messages[i:])
                     if after <= START_BUDGET:
                         self.trimmed = self.stats.trimmed = True
-                        span.update(output={'tokens': after, 'messages_before': len(messages),
-                                            'messages_after': len(messages) - i,
-                                            'removed_messages': i,
-                                            'tokens_after_clear': cleared_tokens,
-                                            'strategy': 'clear_tool_results_then_oldest_turns'})
+                        span.update(output={
+                            'tokens': after,
+                            'messages_before': len(messages),
+                            'messages_after': len(messages) - i,
+                            'removed_messages': i,
+                            'tokens_after_clear': cleared_tokens,
+                            'strategy': 'clear_tool_results_then_oldest_turns'}
+                        )
                         return messages[i:-1]
         raise ContextBudgetExceeded('Не хватило места в контексте для начала хода.')
 
@@ -133,8 +150,11 @@ class Agent:
             raise ContextBudgetExceeded('Не хватило места в контексте для продолжения хода.')
         return messages
 
-    async def prepare_tools(self, ctx: RunContext[None],
-                            tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
+    async def prepare_tools(
+            self, ctx: RunContext[None],
+            tool_defs: list[ToolDefinition]
+    ) -> list[ToolDefinition]:
+        
         if ctx.usage.tool_calls >= MAX_TOOL_CALLS_PER_TURN:
             return []
         if ctx.usage.requests >= CONFIG['max_steps'] - 1:
@@ -167,11 +187,13 @@ class Agent:
     async def run_turn(self, question: str) -> str:
         history = await self.history_for_turn(question)
         usage = RunUsage()
-        # Захват внутри Runner: contextvars из внешнего потока сюда не возвращаются.
+
         with capture_run_messages() as messages:
             try:
                 result = await self.agent.run(
-                    question, message_history=history, usage=usage,
+                    question,
+                    message_history=history,
+                    usage=usage,
                     usage_limits=UsageLimits(
                         request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
                     ),
@@ -193,14 +215,20 @@ class Agent:
         try:
             remaining = self.tools.deadline - monotonic()
             answer = self.loop.run(
-                asyncio.wait_for(self.run_turn(question), max(0, remaining)), context=copy_context())
+                asyncio.wait_for(self.run_turn(question), max(0, remaining)), context=copy_context()
+            )
         except Exception as error:
             name = type(error).__name__.lower()
-            self.stats.status = ('max_steps' if name == 'usagelimitexceeded'
-                                    else 'timeout' if 'timeout' in name else 'error')
-            actions = {CREATE: 'Создан квиз', UPDATE: 'Изменён квиз', DELETE: 'Удалён квиз',
-                       APPEND_QUESTIONS: 'Добавлены вопросы в квиз',
-                       DELETE_QUESTION: 'Удалён вопрос в квизе'}
+            self.stats.status = (
+                'max_steps' if name == 'usagelimitexceeded' else 'timeout' if 'timeout' in name else 'error'
+            )
+            actions = {
+                CREATE: 'Создан квиз',
+                UPDATE: 'Изменён квиз',
+                DELETE: 'Удалён квиз',
+                APPEND_QUESTIONS: 'Добавлены вопросы в квиз',
+                DELETE_QUESTION: 'Удалён вопрос в квизе'
+            }
             completed = [
                 f"{actions[call.arguments['action']]} `{call.result['quiz_id']}`."
                 for call in self.tools.calls
@@ -208,6 +236,7 @@ class Agent:
                 and isinstance(call.result, dict) and 'quiz_id' in call.result
             ]
             answer = '\n'.join([str(error), *completed])
+        
         self.stats.trimmed_before_answer = self.trimmed
         self.stats.context_tokens = self.count(self.history)
         return answer, self.stats

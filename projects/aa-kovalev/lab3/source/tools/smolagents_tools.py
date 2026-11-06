@@ -1,56 +1,25 @@
-"""Адаптеры общих инструментов для smolagents."""
-from typing import Any
+"""Нативная генерация smolagents с мостом для вложенных Pydantic-моделей."""
+from pydantic import validate_call
+from smolagents import Tool, tool
 
-from smolagents import Tool
-
-from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
-from models.domain import ToolResult
-from settings import SCHEMAS
+from constants import MANAGE_QUIZ
+from models.schemas import Question
 from tools.book import BookTools
-
-
-class BookTool(Tool):
-    def __init__(self, schema: dict[str, Any], tools: BookTools) -> None:
-        spec = schema['function']
-        self.name, self.description = spec['name'], spec['description']
-        self.inputs = spec['parameters']['properties']
-        self.output_type = 'any'
-        self.tools = tools
-        super().__init__()
-
-
-class SearchBookTool(BookTool):
-    def forward(self, query: str) -> ToolResult:
-        return self.tools.call(self.name, {'query': query})
-
-
-class ManageQuizTool(BookTool):
-    def forward(self, action: str, quiz_id: str | None = None,
-                title: str | None = None, questions: list[dict[str, Any]] | None = None,
-                question_number: int | None = None, question: dict[str, Any] | None = None,
-                option: str | None = None, option_number: int | None = None) -> ToolResult:
-        return self.tools.call(self.name, dict(
-            action=action, quiz_id=quiz_id, title=title, questions=questions,
-            question_number=question_number, question=question, option=option, option_number=option_number))
-
-
-class ListQuizesTool(BookTool):
-    def forward(self) -> ToolResult:
-        return self.tools.call(self.name, {})
-
-
-class GetQuizInfoTool(BookTool):
-    def forward(self, quiz_id: str, question_number: int | None = None) -> ToolResult:
-        return self.tools.call(self.name, dict(quiz_id=quiz_id, question_number=question_number))
-
-
-TOOL_CLASSES = {
-    SEARCH_BOOK: SearchBookTool,
-    MANAGE_QUIZ: ManageQuizTool,
-    LIST_QUIZES: ListQuizesTool,
-    GET_QUIZ_INFO: GetQuizInfoTool,
-}
+from tools.definitions import build_tool_definitions
 
 
 def build_tools(tools: BookTools) -> list[Tool]:
-    return [TOOL_CLASSES[schema['function']['name']](schema, tools) for schema in SCHEMAS]
+    result = []
+    for handler in build_tool_definitions(tools):
+        item = tool(handler)
+        if item.name == MANAGE_QUIZ:
+            # smolagents 1.22.0 распознаёт BaseModel лишь как object.
+            # Поля и ограничения берём из модели, не дублируем вручную.
+            item.inputs['question'].update(Question.model_json_schema())
+            item.inputs['questions']['items'] = Question.model_json_schema()
+
+            # Нативный @tool не преобразует входные dict в BaseModel.
+            # Валидация сохраняет сигнатуру и даёт общим функциям Question.
+            item.forward = validate_call(handler)
+        result.append(item)
+    return result
