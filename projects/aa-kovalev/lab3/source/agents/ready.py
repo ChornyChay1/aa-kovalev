@@ -85,6 +85,25 @@ class OllamaToolModel(OpenAIServerModel):
         return message
 
 
+
+# CodeAgent receives tool signatures as Python pseudocode. Unlike the
+# ToolCallingAgent's JSON schemas, these omit nested Question fields.
+CODE_INSTRUCTIONS = """
+Для каждого действия вызывай инструменты как Python-функции внутри блока
+```python ... ```, а не описывай предполагаемый вызов словами.
+Пример формата для создания квиза:
+result = manage_quiz(action="create", title="Название", questions=[
+    {"text": "Вопрос?", "options": ["Первый", "Второй"], "correct": 1}
+])
+print(result)
+Поле questions — список словарей, question — один такой словарь.
+correct — номер правильного ответа начиная с 1.
+После вызова проверь результат: {"error": "..."} означает ошибку,
+а подтверждение успеха и ссылки бери только из результата инструмента.
+Когда задача выполнена, вызывай final_answer(...).
+"""
+
+
 class ReadyAgent:
     agent_class = ToolCallingAgent
 
@@ -112,10 +131,13 @@ class ReadyAgent:
         if self.agent_class is ToolCallingAgent:
             agent_kwargs['max_tool_threads'] = 1
         else:
-            # CodeAgent executes model-written Python with the library's
-            # restricted local executor. It uses the same tools and LLM.
+            # Use native smolagents code parsing with a format Qwen follows
+            # more consistently. The default <code> tags are also supported
+            # by the library, but often conflict with model-generated Markdown.
             agent_kwargs['executor_type'] = 'local'
+            agent_kwargs['code_block_tags'] = 'markdown'
             agent_kwargs['max_print_outputs_length'] = 4000
+            agent_kwargs['instructions'] = instructions + '\n\n' + CODE_INSTRUCTIONS
         self.agent = self.agent_class(**agent_kwargs)
         self.first = True
 
