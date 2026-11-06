@@ -29,6 +29,8 @@ class ToolCall(BaseModel):
     arguments: ToolArguments
     result: ToolResult | None = None
     error: str | None = None
+    truncated: bool = False
+    returned_tokens: int | None = None
 
 
 class AgentStats(BaseModel):
