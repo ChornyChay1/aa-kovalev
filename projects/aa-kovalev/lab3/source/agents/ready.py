@@ -9,7 +9,7 @@ from models.domain import TurnStatus
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.smolagents_tools import build_tools
-from smolagents import ToolCallingAgent, OpenAIServerModel
+from smolagents import CodeAgent, ToolCallingAgent, OpenAIServerModel
 from smolagents.memory import ActionStep
 from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction
 from openinference.instrumentation.smolagents import SmolagentsInstrumentor
@@ -86,6 +86,8 @@ class OllamaToolModel(OpenAIServerModel):
 
 
 class ReadyAgent:
+    agent_class = ToolCallingAgent
+
     def __init__(self, tools: BookTools) -> None:
         self.tools = tools
         instructions, self.prompt_version = system_prompt()
@@ -102,14 +104,19 @@ class ReadyAgent:
             temperature=CONFIG['temperature'],
             max_tokens=CONFIG['max_output_tokens']
         )
-        self.agent = ToolCallingAgent(
-            model=self.model,
-            tools=build_tools(tools),
-            instructions=instructions,
-            max_steps=CONFIG['max_steps'],
-            max_tool_threads=1,
-            verbosity_level=0
+        agent_kwargs = dict(
+            model=self.model, tools=build_tools(tools),
+            instructions=instructions, max_steps=CONFIG['max_steps'],
+            verbosity_level=0,
         )
+        if self.agent_class is ToolCallingAgent:
+            agent_kwargs['max_tool_threads'] = 1
+        else:
+            # CodeAgent executes model-written Python with the library's
+            # restricted local executor. It uses the same tools and LLM.
+            agent_kwargs['executor_type'] = 'local'
+            agent_kwargs['max_print_outputs_length'] = 4000
+        self.agent = self.agent_class(**agent_kwargs)
         self.first = True
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
@@ -135,6 +142,11 @@ class ReadyAgent:
 
     def close(self) -> None:
         self.model.client.close()
+
+
+class CodingAgent(ReadyAgent):
+    """smolagents CodeAgent using the same Ollama connection and quiz tools."""
+    agent_class = CodeAgent
 
 
 def instrument() -> None:
