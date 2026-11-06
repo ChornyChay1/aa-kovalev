@@ -89,13 +89,27 @@ class ReadyAgent:
     def __init__(self, tools: BookTools) -> None:
         self.tools = tools
         instructions, self.prompt_version = system_prompt()
-        self.model = OllamaToolModel(tools, model_id=CONFIG['model'], api_base=BASE_URL,
-            api_key=API_KEY, client_kwargs={'timeout': CONFIG['timeout_seconds'], 'max_retries': 0,
-                'http_client': httpx.Client(trust_env=False)},
-            temperature=CONFIG['temperature'], max_tokens=CONFIG['max_output_tokens'])
-        self.agent = ToolCallingAgent(model=self.model,
-            tools=build_tools(tools), instructions=instructions,
-            max_steps=CONFIG['max_steps'], max_tool_threads=1, verbosity_level=0)
+        self.model = OllamaToolModel(
+            tools,
+            model_id=CONFIG['model'],
+            api_base=BASE_URL,
+            api_key=API_KEY,
+            client_kwargs={
+                'timeout': CONFIG['timeout_seconds'],
+                'max_retries': 0,
+                'http_client': httpx.Client(trust_env=False)
+            },
+            temperature=CONFIG['temperature'],
+            max_tokens=CONFIG['max_output_tokens']
+        )
+        self.agent = ToolCallingAgent(
+            model=self.model,
+            tools=build_tools(tools),
+            instructions=instructions,
+            max_steps=CONFIG['max_steps'],
+            max_tool_threads=1,
+            verbosity_level=0
+        )
         self.first = True
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
