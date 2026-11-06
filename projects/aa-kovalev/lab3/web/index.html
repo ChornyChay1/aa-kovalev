@@ -9,7 +9,7 @@
 body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #17243b; background: #f5f7fb; }
 .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100dvh; }
 aside { position: sticky; top: 0; height: 100dvh; overflow: auto; padding: 1.5rem 1rem; background: #eaf0fa; }
-main { width: min(100%, 820px); margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 3rem); }
+main { min-width: 0; width: min(100%, 820px); margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 3rem); }
 h1, h2, p { margin: 0 0 .75rem; }
 h1 { font-size: clamp(1.65rem, 5vw, 2.4rem); }
 h2 { font-size: 1rem; margin-top: 1.5rem; }
@@ -20,19 +20,19 @@ button:disabled { cursor: default; opacity: .55; }
 .primary { background: #244fc0; color: white; font-weight: 600; }
 #dialogs button { display: block; width: 100%; text-align: left; margin-bottom: .35rem; color: inherit; background: transparent; overflow-wrap: anywhere; }
 #dialogs button:hover, #dialogs [aria-current="true"] { background: #d5e2fb; }
-#history { display: grid; gap: .75rem; margin: 1.5rem 0; }
-article { overflow-wrap: anywhere; border-radius: .85rem; background: white; padding: .85rem 1rem; }
+#history { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: .75rem; margin: 1.5rem 0; }
+article { min-width: 0; max-width: 100%; overflow-wrap: anywhere; border-radius: .85rem; background: white; padding: .85rem 1rem; }
 article.user { white-space: pre-wrap; background: #e3ecff; justify-self: end; max-width: 90%; }
 article > strong { display: block; margin-bottom: .3rem; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown h2, .markdown h3 { margin: .85rem 0 .4rem; }
 .markdown ul, .markdown ol { padding-left: 1.6rem; }
-.markdown pre { overflow: auto; padding: .85rem; border-radius: .6rem; background: #17243b; color: #f5f7fb; }
+.markdown pre { max-width: 100%; overflow-x: auto; padding: .85rem; border-radius: .6rem; background: #17243b; color: #f5f7fb; }
 .markdown code { font: .9em ui-monospace, monospace; }
 .markdown :not(pre) > code { padding: .1em .3em; border-radius: .25rem; background: #edf2fa; }
 .markdown blockquote { margin-left: 0; padding-left: .85rem; border-left: 3px solid #aebcd3; color: #495970; }
-.markdown { overflow-x: auto; }
-.markdown table { border-collapse: collapse; }
+.markdown { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .markdown th, .markdown td { border: 1px solid #cad6e8; padding: .4rem .6rem; }
 .markdown th { background: #edf2fa; }
 .plain { white-space: pre-wrap; }
