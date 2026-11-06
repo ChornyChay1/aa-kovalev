@@ -1,4 +1,4 @@
-"""Подготовить два runs.jsonl для внешнего судьи."""
+"""Подготовить один или несколько runs.jsonl для внешнего судьи."""
 import argparse
 import json
 from collections import defaultdict
@@ -40,7 +40,7 @@ def cases(path: Path):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('runs', nargs=2, type=Path)
+    parser.add_argument('runs', nargs='+', type=Path)
     parser.add_argument('-o', '--output', type=Path, default=Path('judge_cases.jsonl'))
     args = parser.parse_args()
     if args.output.resolve() in {path.resolve() for path in args.runs}:
