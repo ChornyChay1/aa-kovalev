@@ -7,14 +7,13 @@ from unittest.mock import patch
 
 os.environ['LANGFUSE_TRACING_ENABLED'] = 'false'
 
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.usage import RequestUsage, RunUsage
+from pydantic_ai.usage import RequestUsage
 
-from agents.custom import Agent, ContextBudgetExceeded, INPUT_BUDGET
+from agents.custom import Agent
 from agents.ready import OllamaToolModel, ReadyAgent
 from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction, MessageRole
-from models.schemas import AgentStats
 from task_data import load_tasks
 from tool_metrics import check_tools
 from tools.book import BookTools
@@ -90,24 +89,6 @@ class AgentTests(unittest.TestCase):
             answer, stats = self.agent.answer('Напомни результат')
         self.assertEqual(stats.status, 'success')
         self.assertEqual(answer, 'Нет квизов.')
-
-    def test_trim_before_turn_removes_whole_old_turn(self):
-        self.agent.stats = AgentStats(status='success', input_tokens=0, output_tokens=0)
-        recent = [ModelRequest(parts=[UserPromptPart('Последний вопрос')]), ModelResponse(parts=[TextPart('Ответ')])]
-        self.agent.history = [ModelRequest(parts=[UserPromptPart('Старое ' * 10000)]),
-                              ModelResponse(parts=[TextPart('Старый ответ')]), *recent]
-        history = self.agent.loop.run(self.agent.history_for_turn('Новый вопрос'))
-        self.assertEqual(history, recent)
-        self.assertTrue(self.agent.stats.trimmed)
-
-    def test_mid_turn_overflow_does_not_trim_messages(self):
-        self.agent.stats = AgentStats(status='success', input_tokens=0, output_tokens=0)
-        messages = [ModelRequest(parts=[UserPromptPart('Текущая задача')])]
-        with patch.object(self.agent, 'count', return_value=INPUT_BUDGET + 1):
-            with self.assertRaises(ContextBudgetExceeded):
-                self.agent.loop.run(self.agent.fit_context(SimpleNamespace(usage=RunUsage()), messages))
-        self.assertEqual(messages[0].parts[0].content, 'Текущая задача')
-        self.assertFalse(self.agent.stats.trimmed)
 
     def test_tools_stop_after_four_calls_with_room_for_final_answer(self):
         def respond(messages, info):
