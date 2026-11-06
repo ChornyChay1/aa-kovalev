@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from time import monotonic
+from threading import Lock
 
 from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
 from models.domain import SearchHit, ToolArguments, ToolResult
@@ -28,6 +29,7 @@ class BookTools:
         self.calls: list[ToolCall] = []
         self.retrievals: list[list[SearchHit]] = []
         self.returned_tool_tokens = 0
+        self._output_lock = Lock()
         self.deadline = monotonic() + CONFIG['timeout_seconds']
 
     def call(self, name: str, arguments: ToolArguments) -> ToolResult:
@@ -44,12 +46,13 @@ class BookTools:
                 input_budget = (CONFIG['context_tokens']
                                 - CONFIG['max_output_tokens']
                                 - CONFIG['context_reserve_tokens'])
-                remaining = input_budget - self.returned_tool_tokens
-                # Небольшой резерв для подтверждения операций записи.
-                budget = min(input_budget, max(256, remaining))
-                delivered, truncated = limit_result(result, budget)
-                delivered_tokens = count_result(delivered)
-                self.returned_tool_tokens += delivered_tokens
+                with self._output_lock:
+                    remaining = input_budget - self.returned_tool_tokens
+                    # Небольшой резерв для подтверждения операций записи.
+                    budget = min(input_budget, max(256, remaining))
+                    delivered, truncated = limit_result(result, budget)
+                    delivered_tokens = count_result(delivered)
+                    self.returned_tool_tokens += delivered_tokens
                 record.truncated = truncated
                 record.returned_tokens = delivered_tokens
                 span.update(output=result, metadata={
