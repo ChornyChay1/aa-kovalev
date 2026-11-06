@@ -1,13 +1,14 @@
 """Регрессии без Ollama, Qdrant и Langfuse: unittest discover -s tests."""
 import os
 import unittest
+from dataclasses import dataclass
 from time import monotonic
 from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ['LANGFUSE_TRACING_ENABLED'] = 'false'
 
-from pydantic_ai.messages import ModelRequest, UserPromptPart, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPromptPart, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RunUsage, RequestUsage
 
@@ -17,6 +18,7 @@ from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolC
 from task_data import load_tasks
 from tool_metrics import check_tools
 from tools.book import BookTools
+from tools.result_budget import count_result, limit_result
 from tools.pydantic_tools import build_tools as custom_tools
 from tools.smolagents_tools import build_tools as ready_tools
 
@@ -57,6 +59,10 @@ class AgentTests(unittest.TestCase):
         self.tokens = patch('agents.custom.count_text', side_effect=lambda text: len(text) // 4)
         self.tokens.start()
         self.addCleanup(self.tokens.stop)
+        self.tool_tokens = patch('tools.result_budget.count_text',
+                                 side_effect=lambda text: max(1, len(text) // 4))
+        self.tool_tokens.start()
+        self.addCleanup(self.tool_tokens.stop)
         self.prompts = patch('agents.custom.system_prompt', return_value=('Учебный помощник.', 'test'))
         self.prompts.start()
         self.addCleanup(self.prompts.stop)
@@ -183,8 +189,84 @@ class AgentTests(unittest.TestCase):
         result = custom.function('Имена')
         self.assertEqual(result, ready.forward('Имена'))
         self.assertEqual(result[0]['page'], 47)
-        self.assertTrue(result[0]['truncated'])
+        self.assertFalse(result[0]['truncated'])
+        self.assertEqual(result[0]['text'], hits[0]['text'])
         self.assertEqual(self.tools.retrievals[0], hits)
+
+    def test_large_search_result_is_clipped_by_tokens_and_marked(self):
+        hits = [{'id': 'chunk-1', 'page': 47, 'text': 'Длинный фрагмент ' * 5000}]
+        self.tools.rag = SimpleNamespace(
+            api=SimpleNamespace(client=SimpleNamespace()), config={'source': 'book'},
+            manifest={'version': 'test'}, retrieve=lambda query, k: (hits, None))
+        result = self.tools.call('search_book', {'query': 'фрагмент'})
+        budget = (17288 - 1024 - 256)
+        self.assertTrue(result[0]['truncated'])
+        self.assertLessEqual(count_result(result), budget)
+        self.assertEqual(self.tools.retrievals[0], hits)
+        self.assertEqual(self.tools.calls[0].result[0]['text'], hits[0]['text'])
+        self.assertTrue(self.tools.calls[0].truncated)
+        self.assertEqual(self.tools.calls[0].returned_tokens, count_result(result))
+
+    def test_large_list_quizes_keeps_ids_and_marks_omissions(self):
+        quizzes = [
+            {'quiz_id': str(i), 'title': 'Квиз ' + 'Название ' * 12,
+             'url': '/quiz/' + str(i)}
+            for i in range(1000)
+        ]
+        with patch.object(self.tools, 'dispatch',
+                          return_value={'quizzes': quizzes, 'count': len(quizzes)}):
+            result = self.tools.call('list_quizes', {})
+        self.assertTrue(result['_truncated'])
+        self.assertLessEqual(count_result(result), 17288 - 1024 - 256)
+        self.assertEqual(result['count'], 1000)
+        self.assertEqual(result['quizzes'][0]['quiz_id'], '0')
+        self.assertEqual(len(self.tools.calls[0].result['quizzes']), 1000)
+
+    def test_after_clean_current_tool_output_is_trimmed_to_fit(self):
+        @dataclass
+        class Context:
+            run_id: str
+            messages: list
+
+        class ClearOld:
+            async def compact(self, messages, ctx):
+                cleared.append(True)
+                return []
+
+        cleared = []
+        big = [{'id': 'chunk-1', 'page': 47, 'text': 'Большой текст ' * 2000}]
+        messages = [
+            ModelRequest(parts=[UserPromptPart('старый запрос')], run_id='old'),
+            ModelResponse(parts=[TextPart('старый ответ')], run_id='old'),
+            ModelRequest(parts=[UserPromptPart('новый запрос')], run_id='new'),
+            ModelResponse(parts=[ToolCallPart('search_book', {'query': 'x'}, 'call-1')], run_id='new'),
+            ModelRequest(parts=[ToolReturnPart(
+                tool_name='search_book', content=big, tool_call_id='call-1')], run_id='new'),
+        ]
+        compaction = self.agent.compaction
+        compaction.tiers = [ClearOld()]
+        compaction.target_tokens = 400
+        compaction.measure = lambda msgs: max(1, len(
+            ModelMessagesTypeAdapter.dump_json(msgs, exclude_defaults=True,
+                                                exclude_none=True)) // 4)
+        compaction.observe = lambda ctx, changed: None
+        ctx = Context('new', messages)
+        with patch('agents.custom.INPUT_BUDGET', 650):
+            output = self.agent.loop.run(
+                compaction.before_model_request(ctx, Context('new', messages)))
+        self.assertTrue(cleared)
+        self.assertLessEqual(compaction.measure(output.messages), 650)
+        self.assertEqual(output.messages[-3].parts[0].content, 'новый запрос')
+        returned = output.messages[-1].parts[0].content
+        self.assertTrue(returned[0]['truncated'])
+        self.assertLess(len(returned[0]['text']), len(big[0]['text']))
+
+    def test_oversized_list_has_explicit_marker_even_when_no_hit_fits(self):
+        oversized = [{'id': 'huge-id', 'page': 47, 'text': 'x' * 1000}]
+        marker = [{'truncated': True, 'omitted_items': 1}]
+        result, clipped = limit_result(oversized, count_result(marker))
+        self.assertTrue(clipped)
+        self.assertEqual(result, marker)
 
     def test_coding_agent_executes_shared_tool(self):
         with patch('agents.ready.system_prompt', return_value=('Учебный помощник.', 'test')):
