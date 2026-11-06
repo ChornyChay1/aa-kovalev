@@ -1,4 +1,5 @@
 """Готовый smolagents, без изменения его цикла и стратегии памяти."""
+import json
 from uuid import uuid4
 from time import monotonic
 
@@ -27,12 +28,51 @@ class OllamaToolModel(OpenAIServerModel):
             raise TimeoutError('Исчерпан таймаут реплики')
         kwargs['timeout'] = remaining
         message = super().generate(messages, tools_to_call_from=tools_to_call_from, **kwargs)
-        # Ollama can return a finished text reply even when tool_choice is required.
+        # Ollama sometimes selects a tool with extra arguments copied from
+        # another tool (notably 'title'). Ignore only unrecognized keys when
+        # every required input is present; never guess a missing quiz ID/action.
+        available = {tool.name: tool for tool in (tools_to_call_from or [])}
+        for call in message.tool_calls or []:
+            arguments = call.function.arguments
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except ValueError:
+                    continue  # Let smolagents report malformed JSON.
+            if not isinstance(arguments, dict):
+                continue
+            selected = available.get(call.function.name)
+            if selected is None:
+                continue
+            allowed = getattr(selected, 'inputs', None)
+            if allowed is None:
+                continue
+            required = {key for key, spec in allowed.items() if not spec.get('nullable')}
+            if required <= arguments.keys():
+                extras = arguments.keys() - allowed.keys()
+                if extras:
+                    call.function.arguments = {
+                        key: value for key, value in arguments.items() if key in allowed
+                    }
+
+        # The framework cannot execute final_answer alongside other tools.
+        # Keep actionable calls and let the agent request a final answer next.
+        calls = message.tool_calls or []
+        actions = [call for call in calls if call.function.name != 'final_answer']
+        if actions:
+            message.tool_calls = actions
+        elif len(calls) > 1:
+            message.tool_calls = calls[:1]
+
+        # Ollama occasionally replies in plain text despite required tool_choice.
+        # Convert only completed text: truncated output or malformed JSON must
+        # remain visible as a parsing error, not masquerade as a successful answer.
         if (
             any(tool.name == 'final_answer' for tool in (tools_to_call_from or []))
             and not message.tool_calls
             and isinstance(message.content, str)
             and message.content.strip()
+            and message.raw is not None
             and message.raw.choices[0].finish_reason == 'stop'
         ):
             message.tool_calls = [ChatMessageToolCall(

@@ -12,7 +12,8 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 
 from agents.custom import Agent, ContextBudgetExceeded, INPUT_BUDGET
-from agents.ready import ReadyAgent
+from agents.ready import OllamaToolModel, ReadyAgent
+from smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction, MessageRole
 from models.schemas import AgentStats
 from task_data import load_tasks
 from tool_metrics import check_tools
@@ -141,6 +142,73 @@ class AgentTests(unittest.TestCase):
         self.tools.deadline = monotonic() - 1
         with self.assertRaises(TimeoutError):
             ready.model.generate([])
+
+
+
+class OllamaAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.tools = SimpleNamespace(deadline=monotonic() + 60)
+        self.model = OllamaToolModel(
+            self.tools, model_id='qwen2.5:7b', api_base='http://localhost:11434/v1',
+            api_key='ollama')
+        self.addCleanup(self.model.client.close)
+        self.available = [SimpleNamespace(name='manage_quiz'), SimpleNamespace(name='final_answer')]
+
+    @staticmethod
+    def call(name, arguments):
+        return ChatMessageToolCall(
+            id=name, type='function',
+            function=ChatMessageToolCallFunction(name=name, arguments=arguments))
+
+    def generate(self, message):
+        with patch('agents.ready.OpenAIServerModel.generate', return_value=message):
+            return self.model.generate([], tools_to_call_from=self.available)
+
+    def test_mixed_final_answer_does_not_discard_action(self):
+        action = self.call('manage_quiz', {'action': 'create', 'title': 'Списки'})
+        final = self.call('final_answer', {'answer': 'Готово'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action, final])
+        self.assertEqual(self.generate(message).tool_calls, [action])
+
+    def test_multiple_final_answers_keep_one(self):
+        first = self.call('final_answer', {'answer': 'Ответ'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[
+            first, self.call('final_answer', {'answer': 'Другой'})])
+        self.assertEqual(self.generate(message).tool_calls, [first])
+
+    def test_completed_plain_text_becomes_final_answer(self):
+        message = ChatMessage(role=MessageRole.ASSISTANT, content='Объяснение',
+            raw=SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop')]))
+        call = self.generate(message).tool_calls[0]
+        self.assertEqual(call.function.name, 'final_answer')
+        self.assertEqual(call.function.arguments, {'answer': 'Объяснение'})
+
+    def test_truncated_output_is_not_misreported_as_success(self):
+        message = ChatMessage(role=MessageRole.ASSISTANT, content='{"name": "manage_quiz"',
+            raw=SimpleNamespace(choices=[SimpleNamespace(finish_reason='length')]))
+        self.assertFalse(self.generate(message).tool_calls)
+
+    def test_unknown_title_is_ignored_when_required_arguments_exist(self):
+        self.available.insert(0, SimpleNamespace(
+            name='get_quiz_info', inputs={'quiz_id': {'type': 'string'},
+                                          'question_number': {'type': 'integer', 'nullable': True}}))
+        action = self.call('get_quiz_info', {'quiz_id': 'abc', 'title': 'Списки'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
+        self.generate(message)
+        self.assertEqual(action.function.arguments, {'quiz_id': 'abc'})
+
+    def test_unknown_title_does_not_hide_missing_required_argument(self):
+        self.available.insert(0, SimpleNamespace(
+            name='get_quiz_info', inputs={'quiz_id': {'type': 'string'}}))
+        action = self.call('get_quiz_info', {'title': 'Списки'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
+        self.generate(message)
+        self.assertEqual(action.function.arguments, {'title': 'Списки'})
+
+    def test_existing_tool_call_is_preserved(self):
+        action = self.call('manage_quiz', {'action': 'create', 'title': 'Списки'})
+        message = ChatMessage(role=MessageRole.ASSISTANT, tool_calls=[action])
+        self.assertEqual(self.generate(message).tool_calls, [action])
 
 
 if __name__ == '__main__':
