@@ -68,6 +68,8 @@ def _mark(value, omitted: int = 0):
                 item['truncated'] = True
         if value and omitted and isinstance(value[-1], dict):
             value[-1]['omitted_items'] = omitted
+        elif not value and omitted:
+            value.append({'truncated': True, 'omitted_items': omitted})
     return value
 
 
