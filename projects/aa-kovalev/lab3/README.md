@@ -110,6 +110,17 @@ PydanticAI строит схемы и валидацию через `Tool`, smol
 память без автоматической обрезки. `CodeAgent` исполняет сгенерированный
 код локально: это не полноценная изоляция от недоверенного кода.
 
+Для `coding` используется родной механизм `CodeAgent` со входными
+Python-блоками в формате Markdown (`code_block_tags="markdown"`).
+Поскольку `smolagents` в Python-подсказке показывает лишь тип `array`
+для `questions`, в инструкции `CodeAgent` добавлен пример структуры
+вопроса (`text`, `options`, `correct`), вызова `manage_quiz` и проверки
+результата. Для диагностики в Langfuse ищите `coding-turn`, вложенные
+`CodeAgent.run`, `Step`, генерацию модели и вызовы инструментов;
+исполнение кода фиксируется как шаг агента. Объём генерации для всех
+агентов по-прежнему ограничен `max_output_tokens=1024`; длинный код
+создания квизов может обрезаться, и это следует проверять отдельно.
+
 Сверка API: [история PydanticAI](https://ai.pydantic.dev/message-history/),
 [ограничения PydanticAI](https://ai.pydantic.dev/agent/),
 [ToolCallingAgent и CodeAgent](https://huggingface.co/docs/smolagents/en/reference/agents),
