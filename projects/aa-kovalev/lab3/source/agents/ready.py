@@ -27,12 +27,24 @@ class OllamaToolModel(OpenAIServerModel):
             raise TimeoutError('Исчерпан таймаут реплики')
         kwargs['timeout'] = remaining
         message = super().generate(messages, tools_to_call_from=tools_to_call_from, **kwargs)
-        # Ollama can return a finished text reply even when tool_choice is required.
+        # The framework cannot execute final_answer alongside other tools.
+        # Keep actionable calls and let the agent request a final answer next.
+        calls = message.tool_calls or []
+        actions = [call for call in calls if call.function.name != 'final_answer']
+        if actions:
+            message.tool_calls = actions
+        elif len(calls) > 1:
+            message.tool_calls = calls[:1]
+
+        # Ollama occasionally replies in plain text despite required tool_choice.
+        # Convert only completed text: truncated output or malformed JSON must
+        # remain visible as a parsing error, not masquerade as a successful answer.
         if (
             any(tool.name == 'final_answer' for tool in (tools_to_call_from or []))
             and not message.tool_calls
             and isinstance(message.content, str)
             and message.content.strip()
+            and message.raw is not None
             and message.raw.choices[0].finish_reason == 'stop'
         ):
             message.tool_calls = [ChatMessageToolCall(
