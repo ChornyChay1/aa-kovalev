@@ -1,10 +1,9 @@
 """Общие инструменты агентов и их трассировка."""
 import json
-import re
 from pathlib import Path
 from time import monotonic
 
-from constants import DELETE, GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
+from constants import GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ, SEARCH_BOOK
 from models.domain import SearchHit, ToolArguments, ToolResult
 from models.schemas import ToolCall
 import httpx
@@ -13,12 +12,6 @@ from settings import LAB2, CONFIG
 from services.quizzes import manage_quiz, list_quizes, get_quiz_info
 
 from rag import RAG
-
-NUMBERED_QUESTION = re.compile(
-    r'\bвопрос(?:а|е|ом)?\s*№?\s*\d+\b|\b\d+(?:[-‑–]\w+)?\s+вопрос\b',
-    re.IGNORECASE,
-)
-
 
 class BookTools:
     session: str
@@ -30,8 +23,7 @@ class BookTools:
         self.rag = RAG(index)
         self.reset()
 
-    def reset(self, user_request: str = '') -> None:
-        self.user_request = user_request
+    def reset(self) -> None:
         self.calls: list[ToolCall] = []
         self.retrievals: list[list[SearchHit]] = []
         self.deadline = monotonic() + CONFIG['timeout_seconds']
@@ -59,8 +51,6 @@ class BookTools:
         if name == SEARCH_BOOK:
             return self.search_book(arguments, remaining)
         if name == MANAGE_QUIZ:
-            if arguments['action'] == DELETE and NUMBERED_QUESTION.search(self.user_request):
-                raise ValueError('Запрос указывает на номер вопроса. Для удаления вопроса используйте delete_question.')
             return manage_quiz(self.session, **arguments)
         if name == LIST_QUIZES:
             quizzes = list_quizes(self.session)

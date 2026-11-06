@@ -85,8 +85,6 @@ def manage_quiz(
         if row is None:
             raise ValueError('Квиз не найден в доступной коллекции')
         if action == DELETE:
-            if any(value is not None for value in (question_number, question, questions, option, option_number)):
-                raise ValueError('delete удаляет весь квиз. Для удаления вопроса используйте delete_question.')
             db.execute('DELETE FROM quizzes WHERE id = ?', (quiz_id,))
             return {'quiz_id': quiz_id, 'deleted': True}
         if action not in (UPDATE, APPEND_QUESTIONS, DELETE_QUESTION):

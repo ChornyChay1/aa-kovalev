@@ -103,33 +103,34 @@ class Agent:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
         return count_text(self.instructions + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
 
-    async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
+    def history_for_turn(self, question: str) -> list[ModelMessage]:
+        request = ModelRequest(parts=[UserPromptPart(content=question)])
+        messages = [*self.history, request]
         before = self.count(messages)
-        after = before
-        budget = INPUT_BUDGET
-        if self.first_request:
-            self.first_request = False
-            budget -= TURN_RESERVE_TOKENS
-            if before > budget:
-                with get_client().start_as_current_observation(name='context-trim',
-                        input={'tokens': before, 'budget': budget,
-                               'turn_reserve_tokens': TURN_RESERVE_TOKENS}) as span:
-                    original_count = len(messages)
-                    for i in range(1, original_count):
-                        if starts_a_turn(messages[i]):
-                            remaining = messages[i:]
-                            remaining_tokens = self.count(remaining)
-                            if remaining_tokens <= budget:
-                                messages = remaining
-                                after = remaining_tokens
-                                self.trimmed = self.stats.trimmed = True
-                                break
-                    span.update(output={'tokens': after,
-                                        'messages_before': original_count,
-                                        'messages_after': len(messages)})
-        if after > budget:
+        budget = INPUT_BUDGET - TURN_RESERVE_TOKENS
+        if before <= budget:
+            return self.history
+
+        with get_client().start_as_current_observation(
+            name='context-trim',
+            input={'tokens': before, 'budget': budget, 'turn_reserve_tokens': TURN_RESERVE_TOKENS,
+                   'phase': 'before_turn'},
+        ) as span:
+            for i in range(1, len(messages)):
+                if starts_a_turn(messages[i]):
+                    after = self.count(messages[i:])
+                    if after <= budget:
+                        self.trimmed = self.stats.trimmed = True
+                        span.update(output={'tokens': after, 'messages_before': len(messages),
+                                            'messages_after': len(messages) - i})
+                        return self.history[i:]
+        raise ContextBudgetExceeded('Не хватило места в контексте для начала хода.')
+
+    async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
+        tokens = self.count(messages)
+        if tokens > INPUT_BUDGET:
             raise ContextBudgetExceeded('Не хватило места в контексте для продолжения хода.')
-        self.stats.max_context = max(self.stats.max_context or 0, after)
+        self.stats.max_context = max(self.stats.max_context or 0, tokens)
         return messages
 
     async def prepare_tools(self, ctx: RunContext[None],
@@ -138,9 +139,7 @@ class Agent:
             return []
         if ctx.usage.requests >= CONFIG['max_steps'] - 1:
             return []
-        # Tool preparation runs before ProcessHistory. The first request reserves
-        # this space in fit_context before anything is sent to the model.
-        if not self.first_request and self.count(ctx.messages) > INPUT_BUDGET - TURN_RESERVE_TOKENS:
+        if self.count(ctx.messages) > INPUT_BUDGET - TURN_RESERVE_TOKENS:
             return []
         return tool_defs
 
@@ -166,13 +165,13 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
-        self.first_request = True
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
         )
         try:
-            request = self.agent.run(question, message_history=self.history,
+            history = self.history_for_turn(question)
+            request = self.agent.run(question, message_history=history,
                 usage_limits=UsageLimits(
                     request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
                 ),
