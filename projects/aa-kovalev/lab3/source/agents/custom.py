@@ -3,10 +3,8 @@ import asyncio
 import json
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
-from dataclasses import replace
 from functools import lru_cache
 from time import monotonic
-from typing import get_args
 
 import httpx2
 from langfuse import get_client
@@ -18,6 +16,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai_harness.compaction import ClearToolResults
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
@@ -26,8 +25,8 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from constants import (
     APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
-    MAX_TOOL_CALLS_PER_TURN, QUIZ_WRITE_RESERVE_TOKENS, SEARCH_BOOK, TOOL_OUTPUT_CHARS,
-    TURN_RESERVE_TOKENS, UPDATE, QuizAction,
+    GET_QUIZ_INFO, LIST_QUIZES, MAX_TOOL_CALLS_PER_TURN, TOOL_OUTPUT_CHARS,
+    TURN_RESERVE_TOKENS, UPDATE,
 )
 from models.schemas import AgentStats
 from tools.book import BookTools
@@ -36,6 +35,7 @@ from services.prompts import system_prompt
 from settings import API_KEY, BASE_URL, CONFIG, SCHEMAS
 
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
+START_BUDGET = INPUT_BUDGET - TURN_RESERVE_TOKENS
 
 
 @lru_cache(maxsize=1)
@@ -60,22 +60,6 @@ class ContextBudgetExceeded(ValueError):
 def validate_answer(output: str) -> str:
     if not output.strip():
         raise ModelRetry('Продолжи задачу пользователя. Вызови нужный инструмент или дай итоговый ответ.')
-    if '"action"' in output:
-        decoder = json.JSONDecoder()
-        for offset, character in enumerate(output):
-            if character != '{':
-                continue
-            try:
-                arguments, _ = decoder.raw_decode(output, offset)
-            except ValueError:
-                continue
-            if (isinstance(arguments, dict) and arguments.get('action') in get_args(QuizAction)
-                    and ('quiz_id' in arguments or 'questions' in arguments)):
-                raise ModelRetry(
-                    'Ты вывел аргументы manage_quiz текстом. Если инструмент доступен и действие ещё '
-                    'не выполнено, вызови его штатно. Иначе сообщи, что реально выполнено по результатам '
-                    'инструментов. Не печатай JSON вызова и не обещай выполнить действие.'
-                )
     return output
 
 
@@ -90,6 +74,10 @@ class Agent:
         self.http = httpx2.AsyncClient(trust_env=False)
         model = OllamaModel(CONFIG['model'], provider=OllamaProvider(
             base_url=BASE_URL, api_key=API_KEY, http_client=self.http))
+        self.clear_tool_results = ClearToolResults(
+            max_tokens=START_BUDGET,
+            exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
+        )
         self.agent = PydanticAgent(
             model, instructions=self.instructions, retries=2,
             capabilities=[
@@ -98,45 +86,31 @@ class Agent:
                 ProcessHistory(self.fit_context),
                 PrepareTools(self.prepare_tools),
             ],
-            tools=build_tools(tools, self.check_quiz_write_budget))
+            tools=build_tools(tools))
         self.agent.output_validator(validate_answer)
 
     def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
         return count_text(self.instructions + json.dumps(SCHEMAS, ensure_ascii=False) + payload)
 
-    def history_for_turn(self, question: str) -> list[ModelMessage]:
+    async def history_for_turn(self, question: str) -> list[ModelMessage]:
         request = ModelRequest(parts=[UserPromptPart(content=question)])
         messages = [*self.history, request]
         before = self.count(messages)
-        budget = INPUT_BUDGET - TURN_RESERVE_TOKENS
-        if before <= budget:
+        if before <= START_BUDGET:
             return self.history
 
         with get_client().start_as_current_observation(
             name='context-trim',
-            input={'tokens': before, 'budget': budget, 'turn_reserve_tokens': TURN_RESERVE_TOKENS,
+            input={'tokens': before, 'budget': START_BUDGET, 'turn_reserve_tokens': TURN_RESERVE_TOKENS,
                    'phase': 'before_turn'},
         ) as span:
-            latest_search = next(
-                (part for message in reversed(self.history) if isinstance(message, ModelRequest)
-                 for part in reversed(message.parts)
-                 if isinstance(part, ToolReturnPart) and part.tool_name == SEARCH_BOOK),
-                None,
-            )
-            messages = [
-                replace(message, parts=[
-                    replace(part, content='Старый результат поиска по учебнику сокращён.')
-                    if isinstance(part, ToolReturnPart) and part.tool_name == SEARCH_BOOK
-                    and part is not latest_search else part
-                    for part in message.parts
-                ]) if isinstance(message, ModelRequest) else message
-                for message in messages
-            ]
+            ctx = RunContext(deps=None, model=self.agent.model, usage=RunUsage())
+            messages = await self.clear_tool_results.compact(messages, ctx)
             for i in range(len(messages)):
-                if starts_a_turn(messages[i]):
+                if i == 0 or starts_a_turn(messages[i]):
                     after = self.count(messages[i:])
-                    if after <= budget:
+                    if after <= START_BUDGET:
                         self.trimmed = self.stats.trimmed = True
                         span.update(output={'tokens': after, 'messages_before': len(messages),
                                             'messages_after': len(messages) - i})
@@ -152,24 +126,13 @@ class Agent:
 
     async def prepare_tools(self, ctx: RunContext[None],
                             tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
-        self.calls_at_model_request = len(self.tools.calls)
         if ctx.usage.tool_calls >= MAX_TOOL_CALLS_PER_TURN:
             return []
         if ctx.usage.requests >= CONFIG['max_steps'] - 1:
             return []
-        if self.count(ctx.messages) > INPUT_BUDGET - TURN_RESERVE_TOKENS:
+        if self.count(ctx.messages) > START_BUDGET:
             return []
         return tool_defs
-
-    def check_quiz_write_budget(self, ctx: RunContext[None]) -> None:
-        # Results from earlier tools in the same batch have not been added to history yet.
-        results = [
-            ToolReturnPart(tool_name=call.name, content=str(call.result or call.error)[:TOOL_OUTPUT_CHARS])
-            for call in self.tools.calls[self.calls_at_model_request:]
-        ]
-        messages = [*ctx.messages, ModelRequest(parts=results)] if results else ctx.messages
-        if self.count(messages) > INPUT_BUDGET - QUIZ_WRITE_RESERVE_TOKENS:
-            raise ModelRetry('Недостаточно контекста для записи. Сообщи, какие операции уже выполнены.')
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
@@ -193,13 +156,12 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
-        self.calls_at_model_request = 0
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
         )
         try:
-            history = self.history_for_turn(question)
+            history = self.loop.run(self.history_for_turn(question), context=copy_context())
             request = self.agent.run(question, message_history=history,
                 usage_limits=UsageLimits(
                     request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
