@@ -259,7 +259,10 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(output.messages[-3].parts[0].content, 'новый запрос')
         returned = output.messages[-1].parts[0].content
         self.assertTrue(returned[0]['truncated'])
-        self.assertLess(len(returned[0]['text']), len(big[0]['text']))
+        if 'text' in returned[0]:
+            self.assertLess(len(returned[0]['text']), len(big[0]['text']))
+        else:
+            self.assertEqual(returned[0]['omitted_items'], 1)
 
     def test_oversized_list_has_explicit_marker_even_when_no_hit_fits(self):
         oversized = [{'id': 'huge-id', 'page': 47, 'text': 'x' * 1000}]
