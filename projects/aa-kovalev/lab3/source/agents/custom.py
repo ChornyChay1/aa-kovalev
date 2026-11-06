@@ -1,4 +1,4 @@
-"""PydanticAI agent with a token-budgeted history processor."""
+"""PydanticAI agent with official tiered history compaction."""
 import asyncio
 import json
 from collections.abc import AsyncIterable, Callable
@@ -9,14 +9,14 @@ from time import monotonic
 import httpx2
 from langfuse import get_client
 from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits, capture_run_messages
-from pydantic_ai.capabilities import Instrumentation, PrepareTools, ProcessHistory
+from pydantic_ai.capabilities import Instrumentation, PrepareTools
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
-    ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart, repair_messages,
+    ModelMessagesTypeAdapter, repair_messages,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai_harness.compaction import ClearToolResults
+from pydantic_ai_harness.compaction import ClearToolResults, SlidingWindowCompaction, TieredCompaction
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
@@ -25,7 +25,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from constants import (
     APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
     GET_QUIZ_INFO, LIST_QUIZES, MAX_TOOL_CALLS_PER_TURN,
-    TURN_RESERVE_TOKENS, UPDATE, TOOL_NAMES,
+    TURN_RESERVE_TOKENS, UPDATE,
 )
 from models.schemas import AgentStats
 from tools.book import BookTools
@@ -46,18 +46,6 @@ def count_text(text: str) -> int:
     return len(tokenizer().encode(text, add_special_tokens=False))
 
 
-def starts_a_turn(message: ModelMessage) -> bool:
-    return (
-            isinstance(message, ModelRequest)
-            and any(isinstance(part, UserPromptPart) for part in message.parts)
-            and not any(isinstance(part, ToolReturnPart) for part in message.parts)
-    )
-
-
-class ContextBudgetExceeded(ValueError):
-    pass
-
-
 def validate_answer(output: str) -> str:
     if not output.strip():
         raise ModelRetry('Продолжи задачу пользователя. Вызови нужный инструмент или дай итоговый ответ.')
@@ -75,16 +63,29 @@ class Agent:
         self.http = httpx2.AsyncClient(trust_env=False)
         model = OllamaModel(CONFIG['model'], provider=OllamaProvider(
             base_url=BASE_URL, api_key=API_KEY, http_client=self.http))
-        self.clear_tool_results = ClearToolResults(
-            max_tokens=START_BUDGET,
-            exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
+        # Official PydanticAI Harness strategy: clear old search results first,
+        # then discard old whole message/tool-call pairs if still over budget.
+        # The two tiers are zero-LLM and run before every model request.
+        self.compaction = TieredCompaction(
+            tiers=[
+                ClearToolResults(
+                    max_tokens=1, keep_pairs=2,
+                    exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
+                ),
+                SlidingWindowCompaction(
+                    max_tokens=1, keep_tokens=6000,
+                    preserve_first_user_message=False,
+                ),
+            ],
+            target_tokens=START_BUDGET,
+            tokenizer=count_text,
         )
         registered_tools = build_tools(tools)
         self.agent = PydanticAgent(
             model, instructions=self.instructions, retries=2,
             capabilities=[
                 Instrumentation(),
-                ProcessHistory(self.fit_context),
+                self.compaction,
                 PrepareTools(self.prepare_tools),
             ],
             tools=registered_tools)
@@ -103,53 +104,6 @@ class Agent:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
         return count_text(self.instructions + self._tool_schemas + payload)
 
-    async def history_for_turn(self, question: str) -> list[ModelMessage]:
-        request = ModelRequest(parts=[UserPromptPart(content=question)])
-        messages = [*self.history, request]
-        
-        before = self.count(messages)
-        
-        self.stats.max_context = max(self.stats.max_context or 0, before)
-        if before <= START_BUDGET:
-            return self.history
-
-        with get_client().start_as_current_observation(
-            name='context-trim',
-            input={'tokens': before, 'budget': START_BUDGET, 'turn_reserve_tokens': TURN_RESERVE_TOKENS,
-                   'phase': 'before_turn'},
-        ) as span:
-            ctx = RunContext(deps=None, model=self.agent.model, usage=RunUsage())
-            messages = await self.clear_tool_results.compact(messages, ctx)
-            cleared_tokens = self.count(messages)
-            for i in range(len(messages)):
-                if i == 0 or starts_a_turn(messages[i]):
-                    after = self.count(messages[i:])
-                    if after <= START_BUDGET:
-                        self.trimmed = self.stats.trimmed = True
-                        span.update(output={
-                            'tokens': after,
-                            'messages_before': len(messages),
-                            'messages_after': len(messages) - i,
-                            'removed_messages': i,
-                            'tokens_after_clear': cleared_tokens,
-                            'strategy': 'clear_tool_results_then_oldest_turns'}
-                        )
-                        return messages[i:-1]
-        raise ContextBudgetExceeded('Не хватило места в контексте для начала хода.')
-
-    async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
-        tokens = self.count(messages)
-        self.stats.max_context = max(self.stats.max_context or 0, tokens)
-        with get_client().start_as_current_observation(
-            name='context-check', input={'step': ctx.usage.requests, 'tokens': tokens,
-                'budget': INPUT_BUDGET, 'context_limit': CONFIG['context_tokens'],
-                'count_method': 'tokenized_serialized_messages'},
-        ) as span:
-            span.update(output={'fits': tokens <= INPUT_BUDGET})
-        if tokens > INPUT_BUDGET:
-            raise ContextBudgetExceeded('Не хватило места в контексте для продолжения хода.')
-        return messages
-
     async def prepare_tools(
             self, ctx: RunContext[None],
             tool_defs: list[ToolDefinition]
@@ -158,8 +112,6 @@ class Agent:
         if ctx.usage.tool_calls >= MAX_TOOL_CALLS_PER_TURN:
             return []
         if ctx.usage.requests >= CONFIG['max_steps'] - 1:
-            return []
-        if self.count(ctx.messages) > START_BUDGET:
             return []
         return tool_defs
 
@@ -185,14 +137,18 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     async def run_turn(self, question: str) -> str:
-        history = await self.history_for_turn(question)
+        # The harness owns history transformation; only compare the saved
+        # prefix to report whether it changed during this run.
+        previous = self.history
+        previous_json = ModelMessagesTypeAdapter.dump_json(
+            previous, exclude_defaults=True, exclude_none=True,
+        )
         usage = RunUsage()
-
         with capture_run_messages() as messages:
             try:
                 result = await self.agent.run(
                     question,
-                    message_history=history,
+                    message_history=previous,
                     usage=usage,
                     usage_limits=UsageLimits(
                         request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
@@ -203,8 +159,12 @@ class Agent:
                 return result.output
             finally:
                 if messages:
-                    # Закрывает незавершённые пары вызов/результат после прерывания.
                     self.history = repair_messages(messages)
+                    # Includes both cleared tool results and dropped old messages.
+                    self.trimmed = bool(previous) and previous_json != ModelMessagesTypeAdapter.dump_json(
+                        self.history[:len(previous)], exclude_defaults=True, exclude_none=True,
+                    )
+                    self.stats.trimmed = self.trimmed
                 self.add_usage(usage)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
@@ -212,6 +172,7 @@ class Agent:
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
         )
+        self.trimmed = False
         try:
             remaining = self.tools.deadline - monotonic()
             answer = self.loop.run(
@@ -239,6 +200,7 @@ class Agent:
         
         self.stats.trimmed_before_answer = self.trimmed
         self.stats.context_tokens = self.count(self.history)
+        self.stats.max_context = self.stats.context_tokens
         return answer, self.stats
 
     def close(self) -> None:
