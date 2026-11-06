@@ -132,7 +132,7 @@ class ObservedCompaction(TieredCompaction):
                         and isinstance(part.content, (dict, list))
                     ]
                     # Сначала результаты поиска, затем другие объёмные
-                    # данные; квитанции manage_quiz — последними.
+                    # данные; квитанции manage_quiz последними.
                     candidates.sort(key=lambda x: (
                         x[2].tool_name == MANAGE_QUIZ,
                         x[2].tool_name != 'search_book',
@@ -209,7 +209,9 @@ class Agent:
         )
         registered_tools = build_tools(tools)
         self.agent = PydanticAgent(
-            model, instructions=self.instructions, retries=2,
+            model,
+            instructions=self.instructions,
+            retries=2,
             capabilities=[
                 Instrumentation(),
                 self.compaction,
@@ -286,8 +288,10 @@ class Agent:
         ) as span:
             span.update(output={'compacted': changed, 'fits': tokens <= INPUT_BUDGET})
         if tokens > INPUT_BUDGET:
-            raise ValueError('Текущий ход превышает бюджет даже без старой истории. '
-                             'Уменьшите объём запроса или результатов инструментов.')
+            raise ValueError(
+                'Текущий ход превышает бюджет даже без старой истории. '
+                             'Уменьшите объём запроса или результатов инструментов.'
+            )
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()

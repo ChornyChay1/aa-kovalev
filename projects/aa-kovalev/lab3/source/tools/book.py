@@ -45,11 +45,10 @@ class BookTools:
                 # Если результат сам больше неё, очистка истории не спасёт.
                 input_budget = (CONFIG['context_tokens']
                                 - CONFIG['max_output_tokens']
-                                - CONFIG['context_reserve_tokens'])
+                                - CONFIG['context_reserve_tokens']) * 0.7
                 with self._output_lock:
                     remaining = input_budget - self.returned_tool_tokens
-                    # Небольшой резерв для подтверждения операций записи.
-                    budget = min(input_budget, max(256, remaining))
+                    budget = max(0, remaining)
                     delivered, truncated = limit_result(result, budget)
                     delivered_tokens = count_result(delivered)
                     self.returned_tool_tokens += delivered_tokens
