@@ -27,7 +27,7 @@ MAX_QUESTIONS = 10
 MAX_OPTIONS = 5
 TURN_RESERVE_TOKENS = 2048
 MAX_TOOL_CALLS_PER_TURN = 4
-SEARCH_EXCERPTS_CHARS = 4000
+
 QUIZ_LINK = re.compile(
     r'(?P<label>\[[^\]\n]+\])\((?:https?://[^/\s)]+)?(?P<path>/quiz/[^\s)]+)\)'
 )
