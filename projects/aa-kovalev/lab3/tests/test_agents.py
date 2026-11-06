@@ -127,6 +127,31 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(stats.trimmed)
         self.assertGreater(stats.max_context, 0)
 
+    def test_large_completed_history_is_summarized_before_new_tool_call(self):
+        self.agent.history = [
+            ModelRequest(parts=[UserPromptPart('Квиз quiz-123. ' * 6000)], run_id='old'),
+            ModelResponse(parts=[TextPart('Создан квиз quiz-123')], run_id='old'),
+        ]
+        summaries = []
+        def respond(messages, info):
+            if not info.function_tools:
+                summaries.append(True)
+                return ModelResponse(parts=[TextPart('Создан квиз quiz-123, требуется добавить вопрос.')])
+            self.assertTrue(any(isinstance(p, UserPromptPart) and p.content == 'Добавь пятый вопрос'
+                                for m in messages for p in m.parts))
+            if any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts):
+                return ModelResponse(parts=[TextPart('Проверено')])
+            return ModelResponse(parts=[ToolCallPart('list_quizes', {}, 'new-call')])
+        with patch.object(self.tools, 'dispatch', return_value={'quizzes': [], 'count': 0}):
+            with self.agent.agent.override(model=FunctionModel(respond)):
+                _, stats = self.agent.answer('Добавь пятый вопрос')
+        self.assertEqual(stats.status, 'success')
+        self.assertTrue(summaries)
+        self.assertTrue(stats.trimmed)
+        self.assertEqual(len(self.tools.calls), 1)
+        self.assertTrue(any(isinstance(p, ToolReturnPart) and p.tool_call_id == 'new-call'
+                            for m in self.agent.history for p in m.parts))
+
     def test_both_adapters_return_the_same_search_evidence(self):
         hits = [{'id': 'chunk', 'page': 47, 'text': 'Имена переменных ' * 1000, 'score': 0.9}]
         self.tools.rag = SimpleNamespace(

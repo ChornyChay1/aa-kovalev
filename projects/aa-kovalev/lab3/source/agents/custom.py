@@ -3,6 +3,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
+from dataclasses import replace
 from functools import lru_cache
 from time import monotonic
 
@@ -12,7 +13,7 @@ from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLim
 from pydantic_ai.capabilities import Instrumentation, PrepareTools
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
-    ModelMessagesTypeAdapter, repair_messages,
+    ModelMessagesTypeAdapter, ModelRequest, UserPromptPart, repair_messages,
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
@@ -33,7 +34,7 @@ from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
 from services.prompts import system_prompt
-from settings import API_KEY, BASE_URL, CONFIG
+from settings import API_KEY, BASE_URL, CONFIG, ROOT
 
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
 START_BUDGET = INPUT_BUDGET - TURN_RESERVE_TOKENS
@@ -55,16 +56,51 @@ def validate_answer(output: str) -> str:
 
 
 class ObservedCompaction(TieredCompaction):
-    def __init__(self, *, observe, **kwargs):
+    """Budget adapter: native strategies operate only on completed turns."""
+    def __init__(self, *, observe, measure, **kwargs):
         super().__init__(**kwargs)
         self.observe = observe
+        self.measure = measure
 
     async def before_model_request(self, ctx, request_context):
-        before = ModelMessagesTypeAdapter.dump_json(ctx.messages)
-        result = await super().before_model_request(ctx, request_context)
-        changed = before != ModelMessagesTypeAdapter.dump_json(ctx.messages)
+        messages = list(request_context.messages)
+        before = self.measure(messages)
+        # The current user turn is an indivisible suffix, including its tool calls.
+        boundary = next((i for i, message in enumerate(messages)
+                         if message.run_id == ctx.run_id), None)
+        if boundary is None:
+            boundary = next((i for i in range(len(messages) - 1, -1, -1)
+                             if isinstance(messages[i], ModelRequest)
+                             and any(isinstance(p, UserPromptPart) for p in messages[i].parts)), 0)
+        old, current = messages[:boundary], messages[boundary:]
+        changed = False
+        if before > self.target_tokens and old:
+            with get_client().start_as_current_observation(
+                name='context-trim', input={'tokens': before, 'budget': self.target_tokens,
+                                            'protected_messages': len(current)},
+            ) as span:
+                strategies = []
+                for tier in self.tiers:
+                    if self.measure([*old, *current]) <= self.target_tokens:
+                        break
+                    old = await tier.compact(old, replace(ctx, messages=old))
+                    strategies.append(type(tier).__name__)
+                # A retained tail is a floor, not a ceiling. Remove complete old
+                # turns if native strategies still cannot satisfy our input budget.
+                while old and self.measure([*old, *current]) > self.target_tokens:
+                    cut = next((i for i in range(1, len(old))
+                                if isinstance(old[i], ModelRequest)
+                                and any(isinstance(p, UserPromptPart) for p in old[i].parts)), len(old))
+                    old = old[cut:]
+                    strategies.append('drop_oldest_turn')
+                compacted = [*old, *current]
+                changed = ModelMessagesTypeAdapter.dump_json(messages) != ModelMessagesTypeAdapter.dump_json(compacted)
+                messages = compacted
+                span.update(output={'tokens': self.measure(messages), 'strategies': strategies,
+                                    'messages_after': len(messages)})
+        ctx.messages[:] = messages
         self.observe(ctx, changed)
-        return result
+        return replace(request_context, messages=messages)
 
 
 class Agent:
@@ -82,18 +118,18 @@ class Agent:
         # and use a sliding window only as the last-resort fallback. Placing
         # the sliding window before summarization would normally skip the LLM tier.
         self.compaction = ObservedCompaction(
-            observe=self.record_context,
+            observe=self.record_context, measure=self.count,
             tiers=[
                 ClearToolResults(
                     max_tokens=1, keep_pairs=2, tokenizer=count_text,
                     exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
                 ),
                 SummarizingCompaction(
-                    max_tokens=1, keep_tokens=4000, tokenizer=count_text,
+                    max_tokens=1, keep_messages=0, tokenizer=count_text,
                     preserve_first_user_message=False,
                     model_settings={'max_tokens': CONFIG['max_output_tokens'],
                                     'temperature': CONFIG['temperature']},
-                ),
+                ).with_focus((ROOT / 'prompts/summary_focus.txt').read_text(encoding='utf-8')),
                 SlidingWindowCompaction(
                     max_tokens=1, keep_tokens=4000, tokenizer=count_text,
                     preserve_first_user_message=False,
@@ -148,7 +184,8 @@ class Agent:
         ) as span:
             span.update(output={'compacted': changed, 'fits': tokens <= INPUT_BUDGET})
         if tokens > INPUT_BUDGET:
-            raise ValueError('Контекст после сокращения превышает входной бюджет.')
+            raise ValueError('Текущий ход превышает бюджет даже без старой истории. '
+                             'Уменьшите объём запроса или результатов инструментов.')
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
