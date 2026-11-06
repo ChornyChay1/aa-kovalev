@@ -16,7 +16,9 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
-from pydantic_ai_harness.compaction import ClearToolResults, SlidingWindowCompaction, TieredCompaction
+from pydantic_ai_harness.compaction import (
+    ClearToolResults, SlidingWindowCompaction, SummarizingCompaction, TieredCompaction,
+)
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
@@ -63,17 +65,23 @@ class Agent:
         self.http = httpx2.AsyncClient(trust_env=False)
         model = OllamaModel(CONFIG['model'], provider=OllamaProvider(
             base_url=BASE_URL, api_key=API_KEY, http_client=self.http))
-        # Official PydanticAI Harness strategy: clear old search results first,
-        # then discard old whole message/tool-call pairs if still over budget.
-        # The two tiers are zero-LLM and run before every model request.
+        # PydanticAI Harness: clear old search results, summarize older turns,
+        # and use a sliding window only as the last-resort fallback. Placing
+        # the sliding window before summarization would normally skip the LLM tier.
         self.compaction = TieredCompaction(
             tiers=[
                 ClearToolResults(
                     max_tokens=1, keep_pairs=2,
                     exclude_tools=frozenset({GET_QUIZ_INFO, LIST_QUIZES, MANAGE_QUIZ}),
                 ),
+                SummarizingCompaction(
+                    max_tokens=1, keep_tokens=4000,
+                    preserve_first_user_message=False,
+                    model_settings={'max_tokens': CONFIG['max_output_tokens'],
+                                    'temperature': CONFIG['temperature']},
+                ),
                 SlidingWindowCompaction(
-                    max_tokens=1, keep_tokens=6000,
+                    max_tokens=1, keep_tokens=4000,
                     preserve_first_user_message=False,
                 ),
             ],
