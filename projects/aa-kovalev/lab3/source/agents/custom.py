@@ -74,18 +74,27 @@ class ObservedCompaction(TieredCompaction):
         messages = list(request_context.messages)
         before = self.measure(messages)
         # The current user turn is an indivisible suffix, including its tool calls.
-        boundary = next((i for i, message in enumerate(messages)
-                         if message.run_id == ctx.run_id), None)
+        boundary = next(
+            (i for i, message in enumerate(messages)
+            if message.run_id == ctx.run_id), None
+        )
         if boundary is None:
-            boundary = next((i for i in range(len(messages) - 1, -1, -1)
-                             if isinstance(messages[i], ModelRequest)
-                             and any(isinstance(p, UserPromptPart) for p in messages[i].parts)), 0)
+            boundary = next(
+                (i for i in range(len(messages) - 1, -1, -1)
+                 if isinstance(messages[i], ModelRequest)
+                and any(isinstance(p, UserPromptPart) for p in messages[i].parts)), 0
+            )
+        
+        # вот тут оч хотелось сохранить последние мысли, иначе чет плохое сделаем.
         old, current = messages[:boundary], messages[boundary:]
         changed = False
         if before > self.target_tokens and old:
             with get_client().start_as_current_observation(
-                name='context-trim', input={'tokens': before, 'budget': self.target_tokens,
-                                            'protected_messages': len(current)},
+                name='context-trim',
+                input={
+                    'tokens': before,
+                    'budget': self.target_tokens,
+                    'protected_messages': len(current)},
             ) as span:
                 strategies = []
                 for tier in self.tiers:
@@ -96,16 +105,23 @@ class ObservedCompaction(TieredCompaction):
                 # A retained tail is a floor, not a ceiling. Remove complete old
                 # turns if native strategies still cannot satisfy our input budget.
                 while old and self.measure([*old, *current]) > self.target_tokens:
-                    cut = next((i for i in range(1, len(old))
-                                if isinstance(old[i], ModelRequest)
-                                and any(isinstance(p, UserPromptPart) for p in old[i].parts)), len(old))
+                    cut = next(
+                        (i for i in range(1, len(old))
+                        if isinstance(old[i], ModelRequest)
+                        and any(isinstance(p, UserPromptPart) for p in old[i].parts)), len(old)
+                    )
                     old = old[cut:]
                     strategies.append('drop_oldest_turn')
                 compacted = [*old, *current]
                 changed = ModelMessagesTypeAdapter.dump_json(messages) != ModelMessagesTypeAdapter.dump_json(compacted)
                 messages = compacted
-                span.update(output={'tokens': self.measure(messages), 'strategies': strategies,
-                                    'messages_after': len(messages)})
+                span.update(
+                    output={
+                        'tokens': self.measure(messages),
+                        'strategies': strategies,
+                        'messages_after': len(messages)
+                    }
+                )
         ctx.messages[:] = messages
         self.observe(ctx, changed)
         return replace(request_context, messages=messages)
