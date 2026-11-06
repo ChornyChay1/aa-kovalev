@@ -5,11 +5,12 @@ from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from functools import lru_cache
 from time import monotonic
+from typing import get_args
 
 import httpx2
 from langfuse import get_client
 from pydantic_ai import Agent as PydanticAgent, ModelRetry, RunContext, UsageLimits
-from pydantic_ai.capabilities import Instrumentation, ProcessHistory
+from pydantic_ai.capabilities import Instrumentation, PrepareTools, ProcessHistory
 from pydantic_ai.messages import (
     AgentStreamEvent, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessage,
     ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart, UserPromptPart,
@@ -18,10 +19,14 @@ from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from constants import APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ, TOOL_OUTPUT_CHARS, TURN_RESERVE_TOKENS, UPDATE
+from constants import (
+    APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
+    MAX_TOOL_CALLS_PER_TURN, TOOL_OUTPUT_CHARS, TURN_RESERVE_TOKENS, UPDATE, QuizAction,
+)
 from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.pydantic_tools import build_tools
@@ -50,9 +55,25 @@ class ContextBudgetExceeded(ValueError):
     pass
 
 
-def require_nonempty_answer(output: str) -> str:
+def validate_answer(output: str) -> str:
     if not output.strip():
         raise ModelRetry('Продолжи задачу пользователя. Вызови нужный инструмент или дай итоговый ответ.')
+    if '"action"' in output:
+        decoder = json.JSONDecoder()
+        for offset, character in enumerate(output):
+            if character != '{':
+                continue
+            try:
+                arguments, _ = decoder.raw_decode(output, offset)
+            except ValueError:
+                continue
+            if (isinstance(arguments, dict) and arguments.get('action') in get_args(QuizAction)
+                    and ('quiz_id' in arguments or 'questions' in arguments)):
+                raise ModelRetry(
+                    'Ты вывел аргументы manage_quiz текстом. Если инструмент доступен и действие ещё '
+                    'не выполнено, вызови его штатно. Иначе сообщи, что реально выполнено по результатам '
+                    'инструментов. Не печатай JSON вызова и не обещай выполнить действие.'
+                )
     return output
 
 
@@ -73,9 +94,10 @@ class Agent:
                 Instrumentation(),
                 ToolOutputLimits(bands=[Band(TOOL_OUTPUT_CHARS, Truncate(max_chars=TOOL_OUTPUT_CHARS))]),
                 ProcessHistory(self.fit_context),
+                PrepareTools(self.prepare_tools),
             ],
             tools=build_tools(tools))
-        self.agent.output_validator(require_nonempty_answer)
+        self.agent.output_validator(validate_answer)
 
     def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
@@ -110,6 +132,18 @@ class Agent:
         self.stats.max_context = max(self.stats.max_context or 0, after)
         return messages
 
+    async def prepare_tools(self, ctx: RunContext[None],
+                            tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
+        if ctx.usage.tool_calls >= MAX_TOOL_CALLS_PER_TURN:
+            return []
+        if ctx.usage.requests >= CONFIG['max_steps'] - 1:
+            return []
+        # Tool preparation runs before ProcessHistory. The first request reserves
+        # this space in fit_context before anything is sent to the model.
+        if not self.first_request and self.count(ctx.messages) > INPUT_BUDGET - TURN_RESERVE_TOKENS:
+            return []
+        return tool_defs
+
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
         if remaining <= 0:
@@ -139,7 +173,9 @@ class Agent:
         )
         try:
             request = self.agent.run(question, message_history=self.history,
-                usage_limits=UsageLimits(request_limit=CONFIG['max_steps']),
+                usage_limits=UsageLimits(
+                    request_limit=CONFIG['max_steps'], tool_calls_limit=MAX_TOOL_CALLS_PER_TURN,
+                ),
                 model_settings=self.model_settings(CONFIG['max_output_tokens']),
                 event_stream_handler=self.stream_events if self.on_event else None)
             result = self.loop.run(asyncio.wait_for(request, CONFIG['timeout_seconds']), context=copy_context())
