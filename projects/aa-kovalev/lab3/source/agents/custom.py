@@ -33,7 +33,7 @@ from models.schemas import AgentStats
 from tools.book import BookTools
 from tools.result_budget import count_text, count_result, limit_result
 from tools.pydantic_tools import build_tools
-from services.prompts import system_prompt
+from services.prompts import system_prompt, summary_focus
 from settings import API_KEY, BASE_URL, CONFIG, ROOT
 
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
@@ -198,7 +198,7 @@ class Agent:
                     preserve_first_user_message=False,
                     model_settings={'max_tokens': CONFIG['max_output_tokens'],
                                     'temperature': CONFIG['temperature']},
-                ).with_focus((ROOT / 'prompts/summary_focus.txt').read_text(encoding='utf-8')),
+                ).with_focus(summary_focus()),
                 SlidingWindowCompaction(
                     max_tokens=1, keep_tokens=4000, tokenizer=count_text,
                     preserve_first_user_message=False,
