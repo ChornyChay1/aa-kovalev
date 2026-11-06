@@ -1,10 +1,12 @@
 """Загрузка промптов из Langfuse с локальными резервными копиями."""
-from functools import lru_cache
 import logging
+from functools import lru_cache
 
 from langfuse import get_client
 
 from settings import LANGFUSE_PROMPT_NAME, ROOT, SYSTEM
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -17,8 +19,6 @@ def system_prompt() -> tuple[str, str]:
     if prompt.is_fallback:
         return SYSTEM, 'local'
     return prompt.prompt, f'{prompt.name}@{prompt.version}'
-
-logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
