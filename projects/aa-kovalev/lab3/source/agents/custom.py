@@ -3,6 +3,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
+from dataclasses import replace
 from functools import lru_cache
 from time import monotonic
 from typing import get_args
@@ -25,7 +26,8 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from constants import (
     APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
-    MAX_TOOL_CALLS_PER_TURN, TOOL_OUTPUT_CHARS, TURN_RESERVE_TOKENS, UPDATE, QuizAction,
+    MAX_TOOL_CALLS_PER_TURN, QUIZ_WRITE_RESERVE_TOKENS, SEARCH_BOOK, TOOL_OUTPUT_CHARS,
+    TURN_RESERVE_TOKENS, UPDATE, QuizAction,
 )
 from models.schemas import AgentStats
 from tools.book import BookTools
@@ -96,7 +98,7 @@ class Agent:
                 ProcessHistory(self.fit_context),
                 PrepareTools(self.prepare_tools),
             ],
-            tools=build_tools(tools))
+            tools=build_tools(tools, self.check_quiz_write_budget))
         self.agent.output_validator(validate_answer)
 
     def count(self, messages: list[ModelMessage]) -> int:
@@ -116,14 +118,29 @@ class Agent:
             input={'tokens': before, 'budget': budget, 'turn_reserve_tokens': TURN_RESERVE_TOKENS,
                    'phase': 'before_turn'},
         ) as span:
-            for i in range(1, len(messages)):
+            latest_search = next(
+                (part for message in reversed(self.history) if isinstance(message, ModelRequest)
+                 for part in reversed(message.parts)
+                 if isinstance(part, ToolReturnPart) and part.tool_name == SEARCH_BOOK),
+                None,
+            )
+            messages = [
+                replace(message, parts=[
+                    replace(part, content='Старый результат поиска по учебнику сокращён.')
+                    if isinstance(part, ToolReturnPart) and part.tool_name == SEARCH_BOOK
+                    and part is not latest_search else part
+                    for part in message.parts
+                ]) if isinstance(message, ModelRequest) else message
+                for message in messages
+            ]
+            for i in range(len(messages)):
                 if starts_a_turn(messages[i]):
                     after = self.count(messages[i:])
                     if after <= budget:
                         self.trimmed = self.stats.trimmed = True
                         span.update(output={'tokens': after, 'messages_before': len(messages),
                                             'messages_after': len(messages) - i})
-                        return self.history[i:]
+                        return messages[i:-1]
         raise ContextBudgetExceeded('Не хватило места в контексте для начала хода.')
 
     async def fit_context(self, ctx: RunContext[None], messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -135,6 +152,7 @@ class Agent:
 
     async def prepare_tools(self, ctx: RunContext[None],
                             tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
+        self.calls_at_model_request = len(self.tools.calls)
         if ctx.usage.tool_calls >= MAX_TOOL_CALLS_PER_TURN:
             return []
         if ctx.usage.requests >= CONFIG['max_steps'] - 1:
@@ -142,6 +160,16 @@ class Agent:
         if self.count(ctx.messages) > INPUT_BUDGET - TURN_RESERVE_TOKENS:
             return []
         return tool_defs
+
+    def check_quiz_write_budget(self, ctx: RunContext[None]) -> None:
+        # Results from earlier tools in the same batch have not been added to history yet.
+        results = [
+            ToolReturnPart(tool_name=call.name, content=str(call.result or call.error)[:TOOL_OUTPUT_CHARS])
+            for call in self.tools.calls[self.calls_at_model_request:]
+        ]
+        messages = [*ctx.messages, ModelRequest(parts=results)] if results else ctx.messages
+        if self.count(messages) > INPUT_BUDGET - QUIZ_WRITE_RESERVE_TOKENS:
+            raise ModelRetry('Недостаточно контекста для записи. Сообщи, какие операции уже выполнены.')
 
     def model_settings(self, max_tokens: int) -> ModelSettings:
         remaining = self.tools.deadline - monotonic()
@@ -165,6 +193,7 @@ class Agent:
                 emit('tool_done', event.part.tool_name)
 
     def answer(self, question: str) -> tuple[str, AgentStats]:
+        self.calls_at_model_request = 0
         self.stats = AgentStats(
             input_tokens=0, output_tokens=0, steps=0,
             trimmed=False, max_context=0, status='success',
