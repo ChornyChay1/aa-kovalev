@@ -5,7 +5,6 @@ import re
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from dataclasses import replace
-from functools import lru_cache
 from time import monotonic
 
 import httpx2
@@ -24,7 +23,6 @@ from pydantic_ai_harness.compaction import (
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from constants import (
     APPEND_QUESTIONS, CREATE, DELETE, DELETE_QUESTION, MANAGE_QUIZ,
@@ -33,22 +31,13 @@ from constants import (
 )
 from models.schemas import AgentStats
 from tools.book import BookTools
-from tools.result_budget import count_result, limit_result
+from tools.result_budget import count_text, count_result, limit_result
 from tools.pydantic_tools import build_tools
 from services.prompts import system_prompt
 from settings import API_KEY, BASE_URL, CONFIG, ROOT
 
 INPUT_BUDGET = CONFIG['context_tokens'] - CONFIG['max_output_tokens'] - CONFIG['context_reserve_tokens']
 START_BUDGET = INPUT_BUDGET - TURN_RESERVE_TOKENS
-
-
-@lru_cache(maxsize=1)
-def tokenizer() -> PreTrainedTokenizerBase:
-    return AutoTokenizer.from_pretrained(CONFIG['tokenizer'])
-
-
-def count_text(text: str) -> int:
-    return len(tokenizer().encode(text, add_special_tokens=False))
 
 
 QUIZ_WRITE_CLAIM = re.compile(
