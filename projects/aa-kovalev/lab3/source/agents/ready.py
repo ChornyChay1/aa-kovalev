@@ -136,7 +136,6 @@ class ReadyAgent:
             # by the library, but often conflict with model-generated Markdown.
             agent_kwargs['executor_type'] = 'local'
             agent_kwargs['code_block_tags'] = 'markdown'
-            agent_kwargs['max_print_outputs_length'] = 4000
             agent_kwargs['instructions'] = instructions + '\n\n' + CODE_INSTRUCTIONS
         self.agent = self.agent_class(**agent_kwargs)
         self.first = True
