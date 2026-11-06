@@ -231,6 +231,10 @@ form.onsubmit = async event => {
         const index = tools.indexOf(value);
         if (index !== -1) tools.splice(index, 1);
       }
+      if (kind === 'finalizing') {
+        status.textContent = 'Проверяем итог…';
+        return;
+      }
       status.textContent = tools.length
         ? 'Агент работает · ' + tools.join(', ')
         : 'Агент работает…';

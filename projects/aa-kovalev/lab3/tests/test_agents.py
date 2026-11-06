@@ -103,6 +103,27 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(len(self.tools.calls), 4)
         self.assertEqual(output, 'Выполнены четыре вызова.')
 
+    def test_finalize_retries_unconfirmed_write_and_uses_tool_receipt(self):
+        responses = iter([
+            ModelResponse(parts=[TextPart('Вопрос успешно добавлен в квиз.')]),
+            ModelResponse(parts=[ToolCallPart('manage_quiz', {
+                'action': 'append_questions', 'quiz_id': 'quiz-123', 'questions': [
+                    {'text': 'Вопрос?', 'options': ['Да', 'Нет'], 'correct': 1},
+                ],
+            }, 'append')]),
+            ModelResponse(parts=[TextPart('Добавил десять вопросов. Правильный ответ: Да.')]),
+        ])
+        receipt = {'quiz_id': 'quiz-123', 'title': 'Циклы', 'url': '/quiz/quiz-123',
+                   'added_question_numbers': [5]}
+        with patch.object(self.tools, 'dispatch', return_value=receipt) as dispatch:
+            with self.agent.agent.override(model=FunctionModel(lambda m, i: next(responses))):
+                answer, stats = self.agent.answer('Добавь ещё 1 вопрос')
+        self.assertEqual(stats.status, 'success')
+        dispatch.assert_called_once()
+        self.assertIn('Номера: 5.', answer)
+        self.assertIn('/quiz/quiz-123', answer)
+        self.assertNotIn('Правильный ответ', answer)
+
     def test_summary_requests_do_not_hide_tools(self):
         ctx = SimpleNamespace(usage=RunUsage(requests=7), run_step=1)
         definitions = [SimpleNamespace(name='manage_quiz')]

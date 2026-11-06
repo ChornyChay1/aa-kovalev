@@ -1,6 +1,7 @@
 """PydanticAI agent with official tiered history compaction."""
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterable, Callable
 from contextvars import copy_context
 from dataclasses import replace
@@ -49,10 +50,17 @@ def count_text(text: str) -> int:
     return len(tokenizer().encode(text, add_special_tokens=False))
 
 
-def validate_answer(output: str) -> str:
-    if not output.strip():
-        raise ModelRetry('Продолжи задачу пользователя. Вызови нужный инструмент или дай итоговый ответ.')
-    return output
+QUIZ_WRITE_CLAIM = re.compile(
+    r'(?<!не )(?:добавлен|создан|удал[её]н|измен[её]н|обновл[её]н|замен[её]н)(?:а|о|ы)?\b',
+    re.IGNORECASE,
+)
+QUIZ_ACTION_LABELS = {
+    CREATE: 'Создан квиз',
+    UPDATE: 'Изменён квиз',
+    DELETE: 'Удалён квиз',
+    APPEND_QUESTIONS: 'Добавлены вопросы в квиз',
+    DELETE_QUESTION: 'Удалён вопрос в квизе',
+}
 
 
 class ObservedCompaction(TieredCompaction):
@@ -147,7 +155,7 @@ class Agent:
                 PrepareTools(self.prepare_tools),
             ],
             tools=registered_tools)
-        self.agent.output_validator(validate_answer)
+        self.agent.output_validator(self.finalize_answer)
         # Считаем контекст по реальным схемам, сгенерированным PydanticAI.
         self._tool_schemas = json.dumps([
             {'type': 'function', 'function': {
@@ -157,6 +165,39 @@ class Agent:
             }}
             for t in registered_tools
         ], ensure_ascii=False)
+
+    def completed_quiz_actions(self) -> list[str]:
+        completed = []
+        for call in self.tools.calls:
+            if call.name != MANAGE_QUIZ or call.error is not None or not isinstance(call.result, dict):
+                continue
+            label = QUIZ_ACTION_LABELS.get(call.arguments.get('action'))
+            quiz_id = call.result.get('quiz_id')
+            if label is None or not quiz_id:
+                continue
+            title, url = call.result.get('title'), call.result.get('url')
+            quiz = f'[{title}]({url}) · ID `{quiz_id}`' if title and url else f'`{quiz_id}`'
+            line = f'{label} {quiz}.'
+            numbers = call.result.get('added_question_numbers')
+            if numbers:
+                line += ' Номера: ' + ', '.join(map(str, numbers)) + '.'
+            completed.append(line)
+        return completed
+
+    def finalize_answer(self, ctx: RunContext[None], output: str) -> str:
+        if self.on_event:
+            self.on_event('finalizing', '')
+        completed = self.completed_quiz_actions()
+        if completed:
+            return '\n'.join(completed)
+        if not output.strip():
+            raise ModelRetry('Продолжи задачу пользователя. Вызови нужный инструмент или дай итоговый ответ.')
+        prompt = ctx.prompt if isinstance(ctx.prompt, str) else ''
+        if (re.search(r'\b(?:добавь|добавляй|создай|создавай|удали|удаляй|измени|замени|обнови)\b', prompt, re.I)
+                and QUIZ_WRITE_CLAIM.search(output)):
+            raise ModelRetry('В этом ходе нет успешного вызова manage_quiz. Выполни запрошенное '
+                             'действие через инструмент или прямо сообщи, что оно не выполнено.')
+        return output
 
     def count(self, messages: list[ModelMessage]) -> int:
         payload = ModelMessagesTypeAdapter.dump_json(messages, exclude_defaults=True, exclude_none=True).decode()
@@ -244,21 +285,8 @@ class Agent:
             self.stats.status = (
                 'max_steps' if name == 'usagelimitexceeded' else 'timeout' if 'timeout' in name else 'error'
             )
-            actions = {
-                CREATE: 'Создан квиз',
-                UPDATE: 'Изменён квиз',
-                DELETE: 'Удалён квиз',
-                APPEND_QUESTIONS: 'Добавлены вопросы в квиз',
-                DELETE_QUESTION: 'Удалён вопрос в квизе'
-            }
-            completed = [
-                f"{actions[call.arguments['action']]} `{call.result['quiz_id']}`."
-                for call in self.tools.calls
-                if call.name == MANAGE_QUIZ and call.error is None
-                and isinstance(call.result, dict) and 'quiz_id' in call.result
-            ]
-            answer = '\n'.join([str(error), *completed])
-        
+            answer = '\n'.join([str(error), *self.completed_quiz_actions()])
+
         self.stats.trimmed_before_answer = self.trimmed
         self.stats.context_tokens = self.count(self.history)
         return answer, self.stats
