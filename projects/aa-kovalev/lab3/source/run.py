@@ -1,4 +1,4 @@
-"""Прогон обоих агентов или интерактивная демонстрация своего."""
+"""Прогон custom, smolagents ToolCallingAgent или CodeAgent."""
 import argparse
 import json
 from contextlib import closing
@@ -15,18 +15,20 @@ from settings import ROOT, CONFIG
 from tools.book import BookTools
 from agents.custom import Agent
 from services.quizzes import get_quiz, list_quizes
-from agents.ready import ReadyAgent, instrument
+from agents.ready import CodingAgent, ReadyAgent, instrument
 from services.turns import turn
 from task_data import load_tasks
 
-from constants import BOTH_AGENTS, CUSTOM_AGENT, DATASET_NAME, READY_AGENT
+from constants import ALL_AGENTS, BOTH_AGENTS, CODING_AGENT, CUSTOM_AGENT, DATASET_NAME, READY_AGENT
 
-AGENTS: dict[str, type[Agent] | type[ReadyAgent]] = {CUSTOM_AGENT: Agent, READY_AGENT: ReadyAgent}
+AGENTS: dict[str, type[Agent] | type[ReadyAgent]] = {
+    CUSTOM_AGENT: Agent, READY_AGENT: ReadyAgent, CODING_AGENT: CodingAgent,
+}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--agent', choices=[*AGENTS, BOTH_AGENTS], default=BOTH_AGENTS)
+    parser.add_argument('--agent', choices=[*AGENTS, BOTH_AGENTS, ALL_AGENTS], default=BOTH_AGENTS)
     parser.add_argument('--chat', action='store_true')
     parser.add_argument('--index', type=Path)
     parser.add_argument(
@@ -47,7 +49,7 @@ def main() -> None:
 
 def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
     if args.chat:
-        agent_name = CUSTOM_AGENT if args.agent == BOTH_AGENTS else args.agent
+        agent_name = CUSTOM_AGENT if args.agent in (BOTH_AGENTS, ALL_AGENTS) else args.agent
         with closing(AGENTS[agent_name](tools)) as agent:
             while question := input('Вы (пустая строка — выход): ').strip():
                 reply = turn(agent, tools, question, run_id, agent_name, run_id)
@@ -61,7 +63,8 @@ def run_batch(args: argparse.Namespace, run_id: str, tools: BookTools) -> None:
             raise ValueError('Неизвестный ID задания')
     
     items = publish_dataset(tasks) if args.publish_dataset else {}
-    names = list(AGENTS) if args.agent == BOTH_AGENTS else [args.agent]
+    names = ([CUSTOM_AGENT, READY_AGENT] if args.agent == BOTH_AGENTS
+             else list(AGENTS) if args.agent == ALL_AGENTS else [args.agent])
     
     folder = ROOT / 'results' / run_id
     folder.mkdir(parents=True)
